@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Quản lý tồn kho</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111827">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Ton kho">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    background: #0f172a; color: #e5e7eb; padding-bottom: 70px;
+  }
+  header {
+    background: #111827; padding: 14px 16px; position: sticky; top: 0; z-index: 10;
+    border-bottom: 1px solid #1f2937; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 16px; margin: 0; }
+  header .actions { display: flex; gap: 8px; }
+  header button {
+    background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 6px;
+    padding: 6px 10px; font-size: 12px;
+  }
+  main { padding: 12px; }
+  .card {
+    background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; margin-bottom: 12px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #9ca3af; margin: 0 0 10px; }
+  .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1f2937; }
+  .row:last-child { border-bottom: none; }
+  .prod-code { font-family: monospace; font-size: 11px; color: #6b7280; }
+  .prod-name { font-size: 14px; }
+  .stock-actual { font-family: monospace; font-weight: 600; }
+  .low { color: #f87171; }
+  .ok { color: #34d399; }
+  .stat-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .stat { background: #0b1220; border: 1px solid #1f2937; border-radius: 8px; padding: 8px; text-align: center; }
+  .stat .lbl { font-size: 10px; color: #9ca3af; text-transform: uppercase; }
+  .stat .val { font-family: monospace; font-size: 16px; font-weight: 700; margin-top: 2px; }
+  select, input, textarea {
+    width: 100%; background: #0b1220; border: 1px solid #374151; color: #e5e7eb;
+    border-radius: 6px; padding: 9px; font-size: 14px; margin-top: 4px; margin-bottom: 10px;
+  }
+  label { font-size: 12px; color: #9ca3af; }
+  .btn-primary {
+    width: 100%; background: #f59e0b; color: #111827; border: none; border-radius: 8px;
+    padding: 12px; font-weight: 700; font-size: 14px;
+  }
+  .btn-secondary {
+    width: 100%; background: transparent; color: #9ca3af; border: 1px solid #374151; border-radius: 8px;
+    padding: 10px; font-size: 13px; margin-top: 8px;
+  }
+  nav {
+    position: fixed; bottom: 0; left: 0; right: 0; background: #111827; border-top: 1px solid #1f2937;
+    display: flex; z-index: 10;
+  }
+  nav button {
+    flex: 1; background: none; border: none; color: #9ca3af; padding: 12px 0; font-size: 12px;
+  }
+  nav button.active { color: #f59e0b; font-weight: 700; }
+  .empty { text-align: center; color: #6b7280; font-size: 13px; padding: 24px 0; }
+  .badge { font-size: 10px; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; }
+  .badge.low { background: #7f1d1d; color: #fca5a5; }
+  .badge.ok { background: #064e3b; color: #6ee7b7; }
+  #fileInput { display: none; }
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1f2937;
+    color: #e5e7eb; padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s;
+    pointer-events: none; z-index: 20;
+  }
+  .toast.show { opacity: 1; }
+  .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .status-dot.on { background: #34d399; }
+  .status-dot.off { background: #6b7280; }
+  .sync-badge { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #374151; color: #d1d5db; margin-left: 6px; }
+  .sync-badge.pending { background: #78350f; color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>📦 Tồn kho thực tế</h1>
+  <div class="actions">
+    <button onclick="document.getElementById('fileInput').click()">Nhập Excel</button>
+    <button onclick="exportExcel()">Xuất Excel</button>
+  </div>
+</header>
+<input type="file" id="fileInput" accept=".xlsx,.xls">
+
+<main id="main"></main>
+
+<nav>
+  <button id="tab-san-pham" class="active" onclick="setTab('san-pham')">Sản phẩm</button>
+  <button id="tab-giao-dich" onclick="setTab('giao-dich')">Giao dịch</button>
+  <button id="tab-bao-cao" onclick="setTab('bao-cao')">Báo cáo</button>
+  <button id="tab-google" onclick="setTab('google')">Google Sheet</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'inv_mobile_data_v1';
+const GOOGLE_CFG_KEY = 'inv_google_cfg_v1';
+let state = { products: [], transactions: [] };
+let currentTab = 'san-pham';
+let selectedProductId = null;
+let googleCfg = { clientId: '', spreadsheetId: '' };
+let accessToken = null;
+let tokenClient = null;
+
+function uid() { return Math.random().toString(36).slice(2, 9); }
+function fmt(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) state = JSON.parse(raw);
+  } catch (e) { console.error(e); }
+  if (!state.products) state.products = [];
+  if (!state.transactions) state.transactions = [];
+  try {
+    const rawCfg = localStorage.getItem(GOOGLE_CFG_KEY);
+    if (rawCfg) googleCfg = JSON.parse(rawCfg);
+  } catch (e) { console.error(e); }
+}
+function saveGoogleCfg() {
+  localStorage.setItem(GOOGLE_CFG_KEY, JSON.stringify(googleCfg));
+}
+function save() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
+
+function computeStock(productId) {
+  let erp = 0, muon = 0;
+  state.transactions.forEach(t => {
+    if (t.productId !== productId) return;
+    const sign = t.type === 'Nhap' ? 1 : -1;
+    if (t.source === 'ERP') erp += sign * t.qty; else muon += sign * t.qty;
+  });
+  return { erp, muon, actual: erp + muon };
+}
+
+function setTab(tab) {
+  currentTab = tab;
+  ['san-pham','giao-dich','bao-cao','google'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('active', t === tab);
+  });
+  render();
+}
+
+function render() {
+  const main = document.getElementById('main');
+  if (currentTab === 'san-pham') return renderProducts(main);
+  if (currentTab === 'giao-dich') return renderTransactionForm(main);
+  if (currentTab === 'bao-cao') return renderReport(main);
+  if (currentTab === 'google') return renderGoogle(main);
+}
+
+function renderProducts(main) {
+  if (state.products.length === 0) {
+    main.innerHTML = '<div class="card"><div class="empty">Chưa có sản phẩm nào.<br>Nhấn "Nhập Excel" để tải dữ liệu, hoặc thêm sản phẩm bên dưới.</div></div>' + productFormHtml();
+    attachProductForm();
+    return;
+  }
+  let rows = state.products.map(p => {
+    const s = computeStock(p.id);
+    const low = s.actual <= (p.threshold || 0);
+    return `<div class="row">
+      <div>
+        <div class="prod-code">${p.code}</div>
+        <div class="prod-name">${p.name}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="stock-actual ${low ? 'low' : 'ok'}">${fmt(s.actual)} ${p.unit || ''}</div>
+        <span class="badge ${low ? 'low' : 'ok'}">${low ? 'Thấp' : 'Đủ'}</span>
+      </div>
+    </div>`;
+  }).join('');
+  main.innerHTML = `<div class="card"><h2>Danh mục sản phẩm (${state.products.length})</h2>${rows}</div>` + productFormHtml();
+  attachProductForm();
+}
+
+function productFormHtml() {
+  return `<div class="card">
+    <h2>Thêm sản phẩm mới</h2>
+    <label>Mã SP</label><input id="np-code">
+    <label>Tên SP</label><input id="np-name">
+    <label>ĐVT</label><input id="np-unit">
+    <label>Ngưỡng cảnh báo tồn thấp</label><input id="np-threshold" type="number" value="0">
+    <button class="btn-primary" id="np-save">Thêm sản phẩm</button>
+  </div>`;
+}
+function attachProductForm() {
+  const btn = document.getElementById('np-save');
+  if (!btn) return;
+  btn.onclick = () => {
+    const code = document.getElementById('np-code').value.trim();
+    const name = document.getElementById('np-name').value.trim();
+    const unit = document.getElementById('np-unit').value.trim();
+    const threshold = Number(document.getElementById('np-threshold').value) || 0;
+    if (!code || !name) { toast('Nhập Mã SP và Tên SP'); return; }
+    state.products.push({ id: uid(), code, name, unit, threshold, desc: '' });
+    save(); toast('Đã thêm sản phẩm'); render();
+  };
+}
+
+function renderTransactionForm(main) {
+  if (state.products.length === 0) {
+    main.innerHTML = '<div class="card"><div class="empty">Cần có ít nhất 1 sản phẩm trước khi ghi giao dịch. Vào tab Sản phẩm để thêm.</div></div>';
+    return;
+  }
+  const options = state.products.map(p => `<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
+  const todayStr = new Date().toISOString().slice(0,10);
+  main.innerHTML = `<div class="card">
+    <h2>Thêm giao dịch</h2>
+    <label>Ngày</label><input id="tx-date" type="date" value="${todayStr}">
+    <label>Sản phẩm</label><select id="tx-product">${options}</select>
+    <label>Loại</label>
+    <select id="tx-type"><option value="Nhap">Nhập</option><option value="Xuat">Xuất</option></select>
+    <label>Nguồn</label>
+    <select id="tx-source"><option value="ERP">ERP</option><option value="Muon">Mượn</option></select>
+    <label>Số lượng</label><input id="tx-qty" type="number">
+    <label>Ghi chú</label><textarea id="tx-note" rows="2"></textarea>
+    <button class="btn-primary" id="tx-save">Lưu giao dịch</button>
+  </div>
+  <div class="card"><h2>Giao dịch gần đây</h2>${recentTxHtml()}</div>`;
+  document.getElementById('tx-save').onclick = () => {
+    const date = document.getElementById('tx-date').value;
+    const productId = document.getElementById('tx-product').value;
+    const type = document.getElementById('tx-type').value;
+    const source = document.getElementById('tx-source').value;
+    const qty = Number(document.getElementById('tx-qty').value);
+    const note = document.getElementById('tx-note').value.trim();
+    if (!date || !qty || qty <= 0) { toast('Nhập ngày và số lượng > 0'); return; }
+    state.transactions.push({ id: uid(), date, productId, type, source, qty, note, synced: false });
+    save(); toast('Đã lưu giao dịch'); renderTransactionForm(main);
+  };
+}
+
+function recentTxHtml() {
+  const items = [...state.transactions].sort((a,b) => a.date < b.date ? 1 : -1).slice(0, 8);
+  if (items.length === 0) return '<div class="empty">Chưa có giao dịch nào.</div>';
+  return items.map(t => {
+    const p = state.products.find(pp => pp.id === t.productId);
+    const sign = t.type === 'Nhap' ? '+' : '-';
+    const pendingBadge = t.synced === false ? '<span class="sync-badge pending">chưa đồng bộ</span>' : '';
+    return `<div class="row">
+      <div>
+        <div class="prod-code">${t.date} · ${t.source === 'ERP' ? 'ERP' : 'Mượn'}${pendingBadge}</div>
+        <div class="prod-name">${p ? p.code : '?'} ${t.note ? '· ' + t.note : ''}</div>
+      </div>
+      <div class="stock-actual">${sign}${fmt(t.qty)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderReport(main) {
+  if (state.products.length === 0) {
+    main.innerHTML = '<div class="card"><div class="empty">Chưa có dữ liệu để báo cáo.</div></div>';
+    return;
+  }
+  const totalActual = state.products.reduce((s,p) => s + computeStock(p.id).actual, 0);
+  const lowCount = state.products.filter(p => computeStock(p.id).actual <= (p.threshold||0)).length;
+  let rows = state.products.map(p => {
+    const s = computeStock(p.id);
+    const low = s.actual <= (p.threshold||0);
+    return `<div class="row">
+      <div>
+        <div class="prod-code">${p.code}</div>
+        <div class="prod-name">${p.name}</div>
+      </div>
+      <div style="text-align:right;font-family:monospace;font-size:12px">
+        ERP ${fmt(s.erp)}<br>Mượn ${fmt(s.muon)}<br>
+        <b class="${low?'low':'ok'}">TT ${fmt(s.actual)}</b>
+      </div>
+    </div>`;
+  }).join('');
+  main.innerHTML = `
+    <div class="card">
+      <div class="stat-grid">
+        <div class="stat"><div class="lbl">Số SP</div><div class="val">${state.products.length}</div></div>
+        <div class="stat"><div class="lbl">Tồn thực tế</div><div class="val">${fmt(totalActual)}</div></div>
+        <div class="stat"><div class="lbl">Cảnh báo</div><div class="val" style="color:${lowCount>0?'#f87171':'#e5e7eb'}">${lowCount}</div></div>
+      </div>
+    </div>
+    <div class="card"><h2>Chi tiết tồn theo sản phẩm</h2>${rows}</div>
+    <div class="card">
+      <button class="btn-secondary" onclick="if(confirm('Xóa toàn bộ dữ liệu trên máy này?')){localStorage.removeItem('${STORAGE_KEY}');state={products:[],transactions:[]};render();toast('Đã xóa dữ liệu');}">Xóa toàn bộ dữ liệu trên máy</button>
+    </div>`;
+}
+
+// ---------- Excel import ----------
+document.getElementById('fileInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, { type: 'array', cellDates: true });
+      importFromWorkbook(wb);
+      toast('Đã nhập dữ liệu từ Excel');
+      render();
+    } catch (err) {
+      console.error(err);
+      toast('Không đọc được file này');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
+function findSheet(wb, nameHints) {
+  const names = wb.SheetNames;
+  for (const hint of nameHints) {
+    const found = names.find(n => n.toLowerCase().replace(/\s/g,'') === hint.toLowerCase().replace(/\s/g,''));
+    if (found) return wb.Sheets[found];
+  }
+  return null;
+}
+
+function excelDateToStr(v) {
+  if (v instanceof Date) return v.toISOString().slice(0,10);
+  if (typeof v === 'string') return v.slice(0,10);
+  return '';
+}
+
+function importFromWorkbook(wb) {
+  const dmSheet = findSheet(wb, ['Danh muc SP', 'Danh mục SP']);
+  const gdSheet = findSheet(wb, ['Giao dich', 'Giao dịch']);
+
+  const codeToId = {};
+  state.products.forEach(p => codeToId[p.code] = p.id);
+
+  if (dmSheet) {
+    const rows = XLSX.utils.sheet_to_json(dmSheet, { header: 1, defval: '' });
+    for (const r of rows) {
+      const code = String(r[0] || '').trim();
+      if (!code || code === 'Mã SP' || code.startsWith('DANH MỤC') || code.startsWith('Ô màu')) continue;
+      if (!codeToId[code]) {
+        const id = uid();
+        codeToId[code] = id;
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', desc: r[3] || '', threshold: Number(r[4]) || 0 });
+      } else {
+        const p = state.products.find(pp => pp.code === code);
+        p.name = r[1] || p.name; p.unit = r[2] || p.unit; p.desc = r[3] || p.desc;
+        p.threshold = r[4] !== '' ? Number(r[4]) : p.threshold;
+      }
+    }
+  }
+
+  if (gdSheet) {
+    const rows = XLSX.utils.sheet_to_json(gdSheet, { header: 1, defval: '' });
+    for (const r of rows) {
+      const dateStr = excelDateToStr(r[0]);
+      const code = String(r[1] || '').trim();
+      const type = String(r[2] || '').trim();
+      if (!dateStr || !code || (type !== 'Nhap' && type !== 'Xuat')) continue;
+      if (!codeToId[code]) continue;
+      state.transactions.push({
+        id: uid(), date: dateStr, productId: codeToId[code],
+        type, source: String(r[3] || 'ERP').trim() === 'Muon' ? 'Muon' : 'ERP',
+        qty: Number(r[4]) || 0, note: r[5] || ''
+      });
+    }
+  }
+  save();
+}
+
+// ---------- Excel export ----------
+function exportExcel() {
+  const wb = XLSX.utils.book_new();
+
+  const dmData = [
+    ['DANH MỤC SẢN PHẨM'], [],
+    ['Mã SP','Tên SP','ĐVT','Diễn giải','Ngưỡng cảnh báo']
+  ];
+  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.desc || '', p.threshold || 0]));
+  const dmSheet = XLSX.utils.aoa_to_sheet(dmData);
+  XLSX.utils.book_append_sheet(wb, dmSheet, 'Danh muc SP');
+
+  const gdData = [
+    ['SỔ GIAO DỊCH'], [],
+    ['Ngày','Mã SP','Loại','Nguồn','Số lượng','Ghi chú']
+  ];
+  const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
+  [...state.transactions].sort((a,b) => a.date < b.date ? -1 : 1).forEach(t => {
+    gdData.push([t.date, idToCode[t.productId] || '', t.type, t.source, t.qty, t.note || '']);
+  });
+  const gdSheet = XLSX.utils.aoa_to_sheet(gdData);
+  XLSX.utils.book_append_sheet(wb, gdSheet, 'Giao dich');
+
+  const bcData = [
+    ['TỒN KHO HIỆN TẠI (snapshot lúc xuất file)'], [],
+    ['Mã SP','Tên SP','ĐVT','Tồn ERP','Tồn mượn','Tồn thực tế','Trạng thái']
+  ];
+  state.products.forEach(p => {
+    const s = computeStock(p.id);
+    const low = s.actual <= (p.threshold||0);
+    bcData.push([p.code, p.name, p.unit, s.erp, s.muon, s.actual, low ? 'Thấp' : 'Đủ']);
+  });
+  const bcSheet = XLSX.utils.aoa_to_sheet(bcData);
+  XLSX.utils.book_append_sheet(wb, bcSheet, 'Ton kho hien tai');
+
+  const stamp = new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb, `ton-kho-${stamp}.xlsx`);
+}
+
+// ---------- Google Sheet connection ----------
+function renderGoogle(main) {
+  const pendingCount = state.transactions.filter(t => t.synced === false).length;
+  main.innerHTML = `
+    <div class="card">
+      <h2>Kết nối Google Sheet</h2>
+      <label>OAuth Client ID (từ Google Cloud Console)</label>
+      <input id="g-client" value="${googleCfg.clientId || ''}" placeholder="xxxx.apps.googleusercontent.com">
+      <label>Spreadsheet ID (lấy từ URL sheet)</label>
+      <input id="g-sheet" value="${googleCfg.spreadsheetId || ''}" placeholder="1AbC...xyz">
+      <button class="btn-secondary" id="g-save-cfg" style="margin-top:4px">Lưu cấu hình</button>
+      <div style="margin-top:14px">
+        <span class="status-dot ${accessToken ? 'on' : 'off'}"></span>
+        ${accessToken ? 'Đã đăng nhập Google' : 'Chưa đăng nhập'}
+      </div>
+      <button class="btn-primary" id="g-login" style="margin-top:10px">${accessToken ? 'Đăng nhập lại' : 'Đăng nhập Google'}</button>
+    </div>
+    <div class="card">
+      <h2>Đồng bộ dữ liệu</h2>
+      <button class="btn-primary" id="g-pull">Tải dữ liệu từ Sheet (Danh mục + Giao dịch)</button>
+      <button class="btn-secondary" id="g-push" style="margin-top:10px">
+        Đồng bộ giao dịch mới lên Sheet ${pendingCount > 0 ? '(' + pendingCount + ' chưa gửi)' : ''}
+      </button>
+      <div id="g-msg" style="margin-top:10px;font-size:12px;color:#9ca3af"></div>
+    </div>
+    <div class="card">
+      <h2>Hướng dẫn nhanh</h2>
+      <div style="font-size:12px;color:#9ca3af;line-height:1.6">
+        1. Tạo OAuth Client ID loại "Web application" trong Google Cloud Console, thêm đúng địa chỉ bạn đang mở file này vào "Authorized JavaScript origins".<br>
+        2. Dán Client ID và Spreadsheet ID vào ô trên, bấm Lưu cấu hình.<br>
+        3. Bấm Đăng nhập Google, cho phép quyền truy cập Sheets.<br>
+        4. Bấm "Tải dữ liệu từ Sheet" 1 lần để lấy danh mục + lịch sử hiện có.<br>
+        5. Từ nay, mỗi giao dịch bạn thêm ở tab Giao dịch sẽ được đánh dấu "chưa đồng bộ" — bấm "Đồng bộ giao dịch mới lên Sheet" khi có mạng để đẩy lên.
+      </div>
+    </div>`;
+
+  document.getElementById('g-save-cfg').onclick = () => {
+    googleCfg.clientId = document.getElementById('g-client').value.trim();
+    googleCfg.spreadsheetId = document.getElementById('g-sheet').value.trim();
+    saveGoogleCfg();
+    toast('Đã lưu cấu hình');
+    initTokenClient();
+  };
+  document.getElementById('g-login').onclick = () => {
+    if (!googleCfg.clientId) { toast('Nhập Client ID trước'); return; }
+    initTokenClient();
+    if (tokenClient) tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
+  };
+  document.getElementById('g-pull').onclick = pullFromSheet;
+  document.getElementById('g-push').onclick = pushToSheet;
+}
+
+function initTokenClient() {
+  if (!window.google || !googleCfg.clientId) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: googleCfg.clientId,
+    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    callback: (resp) => {
+      if (resp.error) { toast('Đăng nhập thất bại: ' + resp.error); return; }
+      accessToken = resp.access_token;
+      toast('Đăng nhập thành công');
+      render();
+    }
+  });
+}
+
+function setGMsg(msg) {
+  const el = document.getElementById('g-msg');
+  if (el) el.textContent = msg;
+}
+
+async function sheetsGet(range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${googleCfg.spreadsheetId}/values/${encodeURIComponent(range)}`;
+  const res = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
+  if (!res.ok) throw new Error('Loi doc sheet: ' + res.status);
+  return res.json();
+}
+
+async function sheetsAppend(range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${googleCfg.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values })
+  });
+  if (!res.ok) throw new Error('Loi ghi sheet: ' + res.status);
+  return res.json();
+}
+
+async function pullFromSheet() {
+  if (!accessToken) { toast('Đăng nhập Google trước'); return; }
+  if (!googleCfg.spreadsheetId) { toast('Nhập Spreadsheet ID trước'); return; }
+  setGMsg('Đang tải...');
+  try {
+    const codeToId = {};
+    state.products.forEach(p => codeToId[p.code] = p.id);
+
+    const dm = await sheetsGet('Danh muc SP!A4:F500');
+    (dm.values || []).forEach(r => {
+      const code = String(r[0] || '').trim();
+      if (!code) return;
+      if (!codeToId[code]) {
+        const id = uid();
+        codeToId[code] = id;
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', desc: r[3] || '', threshold: Number(r[4]) || 0 });
+      }
+    });
+
+    const gd = await sheetsGet('Giao dich!A4:G2000');
+    const existingKeys = new Set(state.transactions.map(t => [t.date, t.productId, t.type, t.source, t.qty, t.note].join('|')));
+    (gd.values || []).forEach(r => {
+      const dateStr = String(r[0] || '').slice(0, 10);
+      const code = String(r[1] || '').trim();
+      const type = String(r[2] || '').trim();
+      if (!dateStr || !code || (type !== 'Nhap' && type !== 'Xuat') || !codeToId[code]) return;
+      const source = String(r[3] || 'ERP').trim() === 'Muon' ? 'Muon' : 'ERP';
+      const qty = Number(r[4]) || 0;
+      const note = r[5] || '';
+      const key = [dateStr, codeToId[code], type, source, qty, note].join('|');
+      if (existingKeys.has(key)) return;
+      state.transactions.push({ id: uid(), date: dateStr, productId: codeToId[code], type, source, qty, note, synced: true });
+      existingKeys.add(key);
+    });
+
+    save();
+    setGMsg('Đã tải xong dữ liệu từ Sheet.');
+    toast('Đã tải dữ liệu');
+    render();
+  } catch (e) {
+    console.error(e);
+    setGMsg('Lỗi: ' + e.message);
+  }
+}
+
+async function pushToSheet() {
+  if (!accessToken) { toast('Đăng nhập Google trước'); return; }
+  if (!googleCfg.spreadsheetId) { toast('Nhập Spreadsheet ID trước'); return; }
+  const pending = state.transactions.filter(t => t.synced === false);
+  if (pending.length === 0) { toast('Không có giao dịch nào cần đồng bộ'); return; }
+  setGMsg('Đang đồng bộ ' + pending.length + ' giao dịch...');
+  try {
+    const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
+    const rows = pending.map(t => [t.date, idToCode[t.productId] || '', t.type, t.source, t.qty, t.note || '', new Date().toISOString().slice(0,10)]);
+    await sheetsAppend('Giao dich!A4:G', rows);
+    pending.forEach(t => t.synced = true);
+    save();
+    setGMsg('Đã đồng bộ xong.');
+    toast('Đồng bộ thành công');
+    render();
+  } catch (e) {
+    console.error(e);
+    setGMsg('Lỗi: ' + e.message);
+  }
+}
+
+load();
+render();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch((e) => console.error('SW loi:', e));
+  });
+}
+</script>
+</body>
+</html>
