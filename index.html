@@ -71,6 +71,7 @@
   .badge { font-size: 10px; text-transform: uppercase; padding: 2px 6px; border-radius: 4px; }
   .badge.low { background: #7f1d1d; color: #fca5a5; }
   .badge.ok { background: #064e3b; color: #6ee7b7; }
+  .loc-badge { font-size: 9px; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: #1e293b; color: #93c5fd; margin-left: 6px; }
   #fileInput { display: none; }
   .toast {
     position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1f2937;
@@ -83,6 +84,8 @@
   .status-dot.off { background: #6b7280; }
   .sync-badge { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: #374151; color: #d1d5db; margin-left: 6px; }
   .sync-badge.pending { background: #78350f; color: #fbbf24; }
+  .loc-detail { font-size: 11px; color: #9ca3af; margin-top: 6px; border-top: 1px dashed #1f2937; padding-top: 6px; }
+  .loc-detail div { display: flex; justify-content: space-between; padding: 2px 0; }
 </style>
 </head>
 <body>
@@ -108,11 +111,11 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const STORAGE_KEY = 'inv_mobile_data_v1';
-const GOOGLE_CFG_KEY = 'inv_google_cfg_v1';
+const STORAGE_KEY = 'inv_mobile_data_v2';
+const GOOGLE_CFG_KEY = 'inv_google_cfg_v2';
+const LOCATIONS = ['DF', 'RETURN', 'Tra NCC'];
 let state = { products: [], transactions: [] };
 let currentTab = 'san-pham';
-let selectedProductId = null;
 let googleCfg = { clientId: '', spreadsheetId: '' };
 let accessToken = null;
 let tokenClient = null;
@@ -144,15 +147,26 @@ function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-function computeStock(productId) {
-  let erp = 0, muon = 0;
+// Tinh Ton ERP / Ton muon (SO DUONG, the hien khoan dang treo chua can tru) / Ton thuc te = ERP - muon
+// loc = null nghia la cong don ca 3 Location
+function computeStock(productId, loc) {
+  let erp = 0, xuatMuon = 0, nhapMuon = 0;
   state.transactions.forEach(t => {
     if (t.productId !== productId) return;
-    const sign = t.type === 'Nhap' ? 1 : -1;
-    if (t.source === 'ERP') erp += sign * t.qty; else muon += sign * t.qty;
+    if (loc !== null && t.location !== loc) return;
+    const sign = t.type === 'Nhập' ? 1 : -1;
+    if (t.source === 'ERP') {
+      erp += sign * t.qty;
+    } else {
+      if (t.type === 'Xuất') xuatMuon += t.qty; else nhapMuon += t.qty;
+    }
   });
-  return { erp, muon, actual: erp + muon };
+  const muon = xuatMuon - nhapMuon; // duong = dang treo chua can tru
+  const actual = erp - muon;
+  return { erp, muon, actual };
 }
+
+function computeStockTotal(productId) { return computeStock(productId, null); }
 
 function setTab(tab) {
   currentTab = tab;
@@ -177,7 +191,7 @@ function renderProducts(main) {
     return;
   }
   let rows = state.products.map(p => {
-    const s = computeStock(p.id);
+    const s = computeStockTotal(p.id);
     const low = s.actual <= (p.threshold || 0);
     return `<div class="row">
       <div>
@@ -213,7 +227,7 @@ function attachProductForm() {
     const unit = document.getElementById('np-unit').value.trim();
     const threshold = Number(document.getElementById('np-threshold').value) || 0;
     if (!code || !name) { toast('Nhập Mã SP và Tên SP'); return; }
-    state.products.push({ id: uid(), code, name, unit, threshold, desc: '' });
+    state.products.push({ id: uid(), code, name, unit, threshold });
     save(); toast('Đã thêm sản phẩm'); render();
   };
 }
@@ -224,15 +238,18 @@ function renderTransactionForm(main) {
     return;
   }
   const options = state.products.map(p => `<option value="${p.id}">${p.code} - ${p.name}</option>`).join('');
+  const locOptions = LOCATIONS.map(l => `<option value="${l}">${l}</option>`).join('');
   const todayStr = new Date().toISOString().slice(0,10);
   main.innerHTML = `<div class="card">
     <h2>Thêm giao dịch</h2>
-    <label>Ngày</label><input id="tx-date" type="date" value="${todayStr}">
+    <label>Ngày chứng từ</label><input id="tx-date" type="date" value="${todayStr}">
     <label>Sản phẩm</label><select id="tx-product">${options}</select>
     <label>Loại</label>
-    <select id="tx-type"><option value="Nhap">Nhập</option><option value="Xuat">Xuất</option></select>
+    <select id="tx-type"><option value="Nhập">Nhập</option><option value="Xuất">Xuất</option></select>
     <label>Nguồn</label>
-    <select id="tx-source"><option value="ERP">ERP</option><option value="Muon">Mượn</option></select>
+    <select id="tx-source"><option value="ERP">ERP</option><option value="Mượn">Mượn</option></select>
+    <label>Location</label>
+    <select id="tx-location">${locOptions}</select>
     <label>Số lượng</label><input id="tx-qty" type="number">
     <label>Ghi chú</label><textarea id="tx-note" rows="2"></textarea>
     <button class="btn-primary" id="tx-save">Lưu giao dịch</button>
@@ -243,10 +260,11 @@ function renderTransactionForm(main) {
     const productId = document.getElementById('tx-product').value;
     const type = document.getElementById('tx-type').value;
     const source = document.getElementById('tx-source').value;
+    const location = document.getElementById('tx-location').value;
     const qty = Number(document.getElementById('tx-qty').value);
     const note = document.getElementById('tx-note').value.trim();
     if (!date || !qty || qty <= 0) { toast('Nhập ngày và số lượng > 0'); return; }
-    state.transactions.push({ id: uid(), date, productId, type, source, qty, note, synced: false });
+    state.transactions.push({ id: uid(), date, productId, type, source, location, qty, note, synced: false });
     save(); toast('Đã lưu giao dịch'); renderTransactionForm(main);
   };
 }
@@ -256,11 +274,11 @@ function recentTxHtml() {
   if (items.length === 0) return '<div class="empty">Chưa có giao dịch nào.</div>';
   return items.map(t => {
     const p = state.products.find(pp => pp.id === t.productId);
-    const sign = t.type === 'Nhap' ? '+' : '-';
+    const sign = t.type === 'Nhập' ? '+' : '-';
     const pendingBadge = t.synced === false ? '<span class="sync-badge pending">chưa đồng bộ</span>' : '';
     return `<div class="row">
       <div>
-        <div class="prod-code">${t.date} · ${t.source === 'ERP' ? 'ERP' : 'Mượn'}${pendingBadge}</div>
+        <div class="prod-code">${t.date} · ${t.source === 'ERP' ? 'ERP' : 'Mượn'}<span class="loc-badge">${t.location || 'DF'}</span>${pendingBadge}</div>
         <div class="prod-name">${p ? p.code : '?'} ${t.note ? '· ' + t.note : ''}</div>
       </div>
       <div class="stock-actual">${sign}${fmt(t.qty)}</div>
@@ -273,20 +291,28 @@ function renderReport(main) {
     main.innerHTML = '<div class="card"><div class="empty">Chưa có dữ liệu để báo cáo.</div></div>';
     return;
   }
-  const totalActual = state.products.reduce((s,p) => s + computeStock(p.id).actual, 0);
-  const lowCount = state.products.filter(p => computeStock(p.id).actual <= (p.threshold||0)).length;
+  const totalActual = state.products.reduce((s,p) => s + computeStockTotal(p.id).actual, 0);
+  const lowCount = state.products.filter(p => computeStockTotal(p.id).actual <= (p.threshold||0)).length;
   let rows = state.products.map(p => {
-    const s = computeStock(p.id);
+    const s = computeStockTotal(p.id);
     const low = s.actual <= (p.threshold||0);
-    return `<div class="row">
-      <div>
-        <div class="prod-code">${p.code}</div>
-        <div class="prod-name">${p.name}</div>
+    const locLines = LOCATIONS.map(loc => {
+      const sl = computeStock(p.id, loc);
+      if (sl.erp === 0 && sl.muon === 0) return '';
+      return `<div><span>${loc}</span><span>TT ${fmt(sl.actual)} (ERP ${fmt(sl.erp)}, Mượn ${fmt(sl.muon)})</span></div>`;
+    }).filter(Boolean).join('');
+    return `<div class="row" style="display:block">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div>
+          <div class="prod-code">${p.code}</div>
+          <div class="prod-name">${p.name}</div>
+        </div>
+        <div style="text-align:right;font-family:monospace;font-size:12px">
+          ERP ${fmt(s.erp)}<br>Mượn ${fmt(s.muon)}<br>
+          <b class="${low?'low':'ok'}">TT ${fmt(s.actual)}</b>
+        </div>
       </div>
-      <div style="text-align:right;font-family:monospace;font-size:12px">
-        ERP ${fmt(s.erp)}<br>Mượn ${fmt(s.muon)}<br>
-        <b class="${low?'low':'ok'}">TT ${fmt(s.actual)}</b>
-      </div>
+      ${locLines ? '<div class="loc-detail">' + locLines + '</div>' : ''}
     </div>`;
   }).join('');
   main.innerHTML = `
@@ -297,7 +323,7 @@ function renderReport(main) {
         <div class="stat"><div class="lbl">Cảnh báo</div><div class="val" style="color:${lowCount>0?'#f87171':'#e5e7eb'}">${lowCount}</div></div>
       </div>
     </div>
-    <div class="card"><h2>Chi tiết tồn theo sản phẩm</h2>${rows}</div>
+    <div class="card"><h2>Chi tiết tồn theo sản phẩm (Tổng chung, có tách Location bên dưới nếu &gt;1 Location)</h2>${rows}</div>
     <div class="card">
       <button class="btn-secondary" onclick="if(confirm('Xóa toàn bộ dữ liệu trên máy này?')){localStorage.removeItem('${STORAGE_KEY}');state={products:[],transactions:[]};render();toast('Đã xóa dữ liệu');}">Xóa toàn bộ dữ liệu trên máy</button>
     </div>`;
@@ -340,8 +366,8 @@ function excelDateToStr(v) {
 }
 
 function importFromWorkbook(wb) {
-  const dmSheet = findSheet(wb, ['Danh muc SP', 'Danh mục SP']);
-  const gdSheet = findSheet(wb, ['Giao dich', 'Giao dịch']);
+  const dmSheet = findSheet(wb, ['Danh mục SP', 'Danh muc SP']);
+  const gdSheet = findSheet(wb, ['Giao dịch', 'Giao dich']);
 
   const codeToId = {};
   state.products.forEach(p => codeToId[p.code] = p.id);
@@ -354,27 +380,30 @@ function importFromWorkbook(wb) {
       if (!codeToId[code]) {
         const id = uid();
         codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', desc: r[3] || '', threshold: Number(r[4]) || 0 });
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0 });
       } else {
         const p = state.products.find(pp => pp.code === code);
-        p.name = r[1] || p.name; p.unit = r[2] || p.unit; p.desc = r[3] || p.desc;
-        p.threshold = r[4] !== '' ? Number(r[4]) : p.threshold;
+        p.name = r[1] || p.name; p.unit = r[2] || p.unit;
+        p.threshold = r[3] !== '' ? Number(r[3]) : p.threshold;
       }
     }
   }
 
   if (gdSheet) {
+    // Cot: A Ngay chung tu, B Ma SP, C Ten SP (bo qua, la cong thuc), D Loai, E Nguon, F Location, G So luong, H Ghi chu, I Ngay nhap lieu
     const rows = XLSX.utils.sheet_to_json(gdSheet, { header: 1, defval: '' });
     for (const r of rows) {
       const dateStr = excelDateToStr(r[0]);
       const code = String(r[1] || '').trim();
-      const type = String(r[2] || '').trim();
-      if (!dateStr || !code || (type !== 'Nhap' && type !== 'Xuat')) continue;
+      const type = String(r[3] || '').trim();
+      if (!dateStr || !code || (type !== 'Nhập' && type !== 'Xuất')) continue;
       if (!codeToId[code]) continue;
+      const source = String(r[4] || 'ERP').trim() === 'Mượn' ? 'Mượn' : 'ERP';
+      const location = LOCATIONS.includes(String(r[5] || '').trim()) ? String(r[5]).trim() : 'DF';
       state.transactions.push({
         id: uid(), date: dateStr, productId: codeToId[code],
-        type, source: String(r[3] || 'ERP').trim() === 'Muon' ? 'Muon' : 'ERP',
-        qty: Number(r[4]) || 0, note: r[5] || ''
+        type, source, location,
+        qty: Number(r[6]) || 0, note: r[7] || '', synced: true
       });
     }
   }
@@ -387,29 +416,29 @@ function exportExcel() {
 
   const dmData = [
     ['DANH MỤC SẢN PHẨM'], [],
-    ['Mã SP','Tên SP','ĐVT','Diễn giải','Ngưỡng cảnh báo']
+    ['Mã SP','Tên SP','ĐVT','Ngưỡng cảnh báo']
   ];
-  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.desc || '', p.threshold || 0]));
+  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.threshold || 0]));
   const dmSheet = XLSX.utils.aoa_to_sheet(dmData);
   XLSX.utils.book_append_sheet(wb, dmSheet, 'Danh muc SP');
 
   const gdData = [
     ['SỔ GIAO DỊCH'], [],
-    ['Ngày','Mã SP','Loại','Nguồn','Số lượng','Ghi chú']
+    ['Ngày chứng từ','Mã SP','Loại','Nguồn','Location','Số lượng','Ghi chú']
   ];
   const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
   [...state.transactions].sort((a,b) => a.date < b.date ? -1 : 1).forEach(t => {
-    gdData.push([t.date, idToCode[t.productId] || '', t.type, t.source, t.qty, t.note || '']);
+    gdData.push([t.date, idToCode[t.productId] || '', t.type, t.source, t.location || 'DF', t.qty, t.note || '']);
   });
   const gdSheet = XLSX.utils.aoa_to_sheet(gdData);
   XLSX.utils.book_append_sheet(wb, gdSheet, 'Giao dich');
 
   const bcData = [
-    ['TỒN KHO HIỆN TẠI (snapshot lúc xuất file)'], [],
+    ['TỒN KHO HIỆN TẠI (snapshot lúc xuất file, gộp cả 3 Location)'], [],
     ['Mã SP','Tên SP','ĐVT','Tồn ERP','Tồn mượn','Tồn thực tế','Trạng thái']
   ];
   state.products.forEach(p => {
-    const s = computeStock(p.id);
+    const s = computeStockTotal(p.id);
     const low = s.actual <= (p.threshold||0);
     bcData.push([p.code, p.name, p.unit, s.erp, s.muon, s.actual, low ? 'Thấp' : 'Đủ']);
   });
@@ -452,7 +481,8 @@ function renderGoogle(main) {
         2. Dán Client ID và Spreadsheet ID vào ô trên, bấm Lưu cấu hình.<br>
         3. Bấm Đăng nhập Google, cho phép quyền truy cập Sheets.<br>
         4. Bấm "Tải dữ liệu từ Sheet" 1 lần để lấy danh mục + lịch sử hiện có.<br>
-        5. Từ nay, mỗi giao dịch bạn thêm ở tab Giao dịch sẽ được đánh dấu "chưa đồng bộ" — bấm "Đồng bộ giao dịch mới lên Sheet" khi có mạng để đẩy lên.
+        5. Mỗi giao dịch mới thêm ở tab Giao dịch được đánh dấu "chưa đồng bộ" — bấm "Đồng bộ" khi có mạng.<br>
+        6. Đồng bộ KHÔNG đụng vào cột Tên SP (cột C) trên Sheet thật — cột đó vẫn giữ nguyên công thức có sẵn.
       </div>
     </div>`;
 
@@ -498,15 +528,26 @@ async function sheetsGet(range) {
   return res.json();
 }
 
-async function sheetsAppend(range, values) {
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${googleCfg.spreadsheetId}/values/${encodeURIComponent(range)}:append?valueInputOption=USER_ENTERED`;
+async function sheetsUpdate(range, values) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${googleCfg.spreadsheetId}/values/${encodeURIComponent(range)}?valueInputOption=USER_ENTERED`;
   const res = await fetch(url, {
-    method: 'POST',
+    method: 'PUT',
     headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values })
   });
   if (!res.ok) throw new Error('Loi ghi sheet: ' + res.status);
   return res.json();
+}
+
+// Tim dong trong tiep theo dua vao cot B (Ma SP) cua sheet that, GIONG HET logic ben Apps Script,
+// vi cot C (Ten SP) da co cong thuc san cho ca 3000 dong nen khong dung duoc de xac dinh "dong trong".
+async function timDongTrongTiepTheoTrenSheet() {
+  const res = await sheetsGet('Giao dịch!B4:B3000');
+  const values = res.values || [];
+  for (let i = 0; i < 2997; i++) {
+    if (!values[i] || !values[i][0]) return 4 + i;
+  }
+  return 4 + values.length;
 }
 
 async function pullFromSheet() {
@@ -517,30 +558,32 @@ async function pullFromSheet() {
     const codeToId = {};
     state.products.forEach(p => codeToId[p.code] = p.id);
 
-    const dm = await sheetsGet('Danh muc SP!A4:F500');
+    const dm = await sheetsGet('Danh mục SP!A4:E500');
     (dm.values || []).forEach(r => {
       const code = String(r[0] || '').trim();
       if (!code) return;
       if (!codeToId[code]) {
         const id = uid();
         codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', desc: r[3] || '', threshold: Number(r[4]) || 0 });
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0 });
       }
     });
 
-    const gd = await sheetsGet('Giao dich!A4:G2000');
-    const existingKeys = new Set(state.transactions.map(t => [t.date, t.productId, t.type, t.source, t.qty, t.note].join('|')));
+    // Cot that: A Ngay, B Ma SP, C Ten SP(cong thuc,bo qua), D Loai, E Nguon, F Location, G So luong, H Ghi chu, I Ngay nhap lieu
+    const gd = await sheetsGet('Giao dịch!A4:I3000');
+    const existingKeys = new Set(state.transactions.map(t => [t.date, t.productId, t.type, t.source, t.location, t.qty, t.note].join('|')));
     (gd.values || []).forEach(r => {
       const dateStr = String(r[0] || '').slice(0, 10);
       const code = String(r[1] || '').trim();
-      const type = String(r[2] || '').trim();
-      if (!dateStr || !code || (type !== 'Nhap' && type !== 'Xuat') || !codeToId[code]) return;
-      const source = String(r[3] || 'ERP').trim() === 'Muon' ? 'Muon' : 'ERP';
-      const qty = Number(r[4]) || 0;
-      const note = r[5] || '';
-      const key = [dateStr, codeToId[code], type, source, qty, note].join('|');
+      const type = String(r[3] || '').trim();
+      if (!dateStr || !code || (type !== 'Nhập' && type !== 'Xuất') || !codeToId[code]) return;
+      const source = String(r[4] || 'ERP').trim() === 'Mượn' ? 'Mượn' : 'ERP';
+      const location = LOCATIONS.includes(String(r[5] || '').trim()) ? String(r[5]).trim() : 'DF';
+      const qty = Number(r[6]) || 0;
+      const note = r[7] || '';
+      const key = [dateStr, codeToId[code], type, source, location, qty, note].join('|');
       if (existingKeys.has(key)) return;
-      state.transactions.push({ id: uid(), date: dateStr, productId: codeToId[code], type, source, qty, note, synced: true });
+      state.transactions.push({ id: uid(), date: dateStr, productId: codeToId[code], type, source, location, qty, note, synced: true });
       existingKeys.add(key);
     });
 
@@ -562,10 +605,14 @@ async function pushToSheet() {
   setGMsg('Đang đồng bộ ' + pending.length + ' giao dịch...');
   try {
     const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
-    const rows = pending.map(t => [t.date, idToCode[t.productId] || '', t.type, t.source, t.qty, t.note || '', new Date().toISOString().slice(0,10)]);
-    await sheetsAppend('Giao dich!A4:G', rows);
-    pending.forEach(t => t.synced = true);
-    save();
+    for (const t of pending) {
+      const row = await timDongTrongTiepTheoTrenSheet();
+      // Ghi cot A,B truoc (bo qua C - cong thuc Ten SP co san), roi ghi D..I
+      await sheetsUpdate(`Giao dịch!A${row}:B${row}`, [[t.date, idToCode[t.productId] || '']]);
+      await sheetsUpdate(`Giao dịch!D${row}:I${row}`, [[t.type, t.source, t.location || 'DF', t.qty, t.note || '', new Date().toISOString().slice(0,10)]]);
+      t.synced = true;
+      save();
+    }
     setGMsg('Đã đồng bộ xong.');
     toast('Đồng bộ thành công');
     render();
