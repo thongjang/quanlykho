@@ -72,6 +72,24 @@
   .badge.low { background: #7f1d1d; color: #fca5a5; }
   .badge.ok { background: #064e3b; color: #6ee7b7; }
   .loc-badge { font-size: 9px; text-transform: uppercase; padding: 1px 5px; border-radius: 4px; background: #1e293b; color: #93c5fd; margin-left: 6px; }
+  .prod-sub { font-size: 10px; color: #6b7280; margin-top: 3px; font-family: monospace; }
+  .prod-thumb { width: 38px; height: 38px; border-radius: 6px; object-fit: cover; background: #0b1220; border: 1px solid #1f2937; margin-right: 10px; flex: none; }
+  .filter-card { padding: 10px 12px; }
+  .filter-card .search { margin-bottom: 8px; }
+  .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+  .filter-grid select { margin-bottom: 0; }
+  .filter-card .btn-secondary { margin-top: 8px; padding: 7px; }
+  .filter-summary { font-size: 11px; color: #6b7280; margin-top: 8px; line-height: 1.5; }
+  .seg { display: flex; gap: 6px; margin-bottom: 12px; }
+  .seg button { flex: 1; background: #0b1220; border: 1px solid #374151; color: #9ca3af; border-radius: 8px; padding: 9px 4px; font-size: 12px; }
+  .seg button.active { background: #f59e0b; color: #111827; border-color: #f59e0b; font-weight: 700; }
+  .report-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+  table.rpt { border-collapse: collapse; width: 100%; font-size: 11px; }
+  table.rpt th, table.rpt td { border: 1px solid #1f2937; padding: 6px 8px; text-align: right; white-space: nowrap; }
+  table.rpt th { color: #9ca3af; font-weight: 600; background: #0b1220; }
+  table.rpt th.txt, table.rpt td.txt { text-align: left; }
+  table.rpt td.strong { font-weight: 700; color: #e5e7eb; }
+  table.rpt tfoot td { font-weight: 700; background: #0b1220; }
   #fileInput { display: none; }
   .toast {
     position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1f2937;
@@ -86,6 +104,46 @@
   .sync-badge.pending { background: #78350f; color: #fbbf24; }
   .loc-detail { font-size: 11px; color: #9ca3af; margin-top: 6px; border-top: 1px dashed #1f2937; padding-top: 6px; }
   .loc-detail div { display: flex; justify-content: space-between; padding: 2px 0; }
+
+  /* Bat buoc co mang: lop phu khoa man hinh khi offline */
+  #offline-gate {
+    position: fixed; inset: 0; z-index: 100; background: rgba(15,23,42,.96);
+    display: none; align-items: center; justify-content: center; padding: 24px;
+  }
+  #offline-gate .offline-box {
+    background: #111827; border: 1px solid #1f2937; border-radius: 14px; padding: 28px 22px;
+    text-align: center; max-width: 340px;
+  }
+  #offline-gate h2 { font-size: 16px; margin: 12px 0 6px; }
+  #offline-gate p { font-size: 13px; color: #9ca3af; line-height: 1.6; margin: 0 0 16px; }
+
+  /* ---------- Man hinh desktop ---------- */
+  @media (min-width: 900px) {
+    body { padding-bottom: 0; padding-left: 210px; }
+    header { padding: 16px 28px; }
+    header h1 { font-size: 18px; }
+    nav {
+      top: 0; bottom: 0; right: auto; width: 210px; flex-direction: column;
+      border-top: none; border-right: 1px solid #1f2937; padding-top: 8px;
+    }
+    nav button {
+      flex: none; text-align: left; padding: 14px 24px; font-size: 14px;
+      border-left: 3px solid transparent;
+    }
+    nav button.active { border-left-color: #f59e0b; background: #0b1220; }
+    main { max-width: 1180px; margin: 0 auto; padding: 22px 28px 60px; }
+    .card { padding: 16px 18px; }
+    .stat-grid { grid-template-columns: repeat(6, 1fr); }
+    .filter-grid { grid-template-columns: repeat(4, 1fr); }
+    .filter-card .btn-secondary { width: auto; padding: 8px 20px; }
+    table.rpt { font-size: 13px; }
+    table.rpt th, table.rpt td { padding: 9px 12px; }
+    .toast { bottom: 24px; }
+    #main.cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  }
+  @media (min-width: 1300px) {
+    .stat-grid { grid-template-columns: repeat(6, 1fr); }
+  }
 </style>
 </head>
 <body>
@@ -113,12 +171,16 @@
 <script>
 const STORAGE_KEY = 'inv_mobile_data_v2';
 const GOOGLE_CFG_KEY = 'inv_google_cfg_v2';
+const PRODUCT_FILTER_KEY = 'inv_product_filter_v1';
+const REPORT_VIEW_KEY = 'inv_report_view_v1';
 const LOCATIONS = ['DF', 'RETURN', 'Tra NCC'];
 let state = { products: [], transactions: [] };
 let currentTab = 'san-pham';
 let googleCfg = { clientId: '', spreadsheetId: '' };
 let accessToken = null;
 let tokenClient = null;
+let productFilter = { q: '', status: 'all', location: 'all', sort: 'code' };
+let reportView = { mode: 'snapshot', month: new Date().toISOString().slice(0, 7), hideZero: true };
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function fmt(n) { return Number(n || 0).toLocaleString('vi-VN'); }
@@ -139,9 +201,23 @@ function load() {
     const rawCfg = localStorage.getItem(GOOGLE_CFG_KEY);
     if (rawCfg) googleCfg = JSON.parse(rawCfg);
   } catch (e) { console.error(e); }
+  try {
+    const rawF = localStorage.getItem(PRODUCT_FILTER_KEY);
+    if (rawF) productFilter = { ...productFilter, ...JSON.parse(rawF) };
+  } catch (e) { console.error(e); }
+  try {
+    const rawR = localStorage.getItem(REPORT_VIEW_KEY);
+    if (rawR) reportView = { ...reportView, ...JSON.parse(rawR) };
+  } catch (e) { console.error(e); }
 }
 function saveGoogleCfg() {
   localStorage.setItem(GOOGLE_CFG_KEY, JSON.stringify(googleCfg));
+}
+function saveProductFilter() {
+  localStorage.setItem(PRODUCT_FILTER_KEY, JSON.stringify(productFilter));
+}
+function saveReportView() {
+  localStorage.setItem(REPORT_VIEW_KEY, JSON.stringify(reportView));
 }
 function save() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -168,6 +244,61 @@ function computeStock(productId, loc) {
 
 function computeStockTotal(productId) { return computeStock(productId, null); }
 
+// ---------- Logic bao cao thang (khop mo ta muc 2.4 / 2.5) ----------
+// Tra ve { start: 'YYYY-MM-01', next: 'YYYY-MM-01' cua thang ke tiep } tu chuoi 'YYYY-MM'
+function monthBounds(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const nextY = m === 12 ? y + 1 : y;
+  const nextM = m === 12 ? 1 : m + 1;
+  return { start: `${ym}-01`, next: `${nextY}-${String(nextM).padStart(2, '0')}-01` };
+}
+
+// Cong don (Nhap - Xuat) cho MOI giao dich co Ngay chung tu TRUOC cutoff (khong tinh cutoff).
+// loc = null nghia la gop ca 3 Location. Tuong duong ham tonTruocNgay() ben Apps Script.
+function netTruocNgay(productId, loc, source, cutoff) {
+  let nhap = 0, xuat = 0;
+  state.transactions.forEach(t => {
+    if (t.productId !== productId || t.source !== source) return;
+    if (loc !== null && (t.location || 'DF') !== loc) return;
+    if (!(t.date && t.date < cutoff)) return;
+    if (t.type === 'Nhập') nhap += t.qty; else xuat += t.qty;
+  });
+  return nhap - xuat;
+}
+
+// Tong so luong cac giao dich trong khoang [start, next) thoa dieu kien pred(t)
+function tongTrongKy(productId, pred, start, next) {
+  let s = 0;
+  state.transactions.forEach(t => {
+    if (t.productId !== productId) return;
+    if (!(t.date && t.date >= start && t.date < next)) return;
+    if (pred(t)) s += t.qty;
+  });
+  return s;
+}
+
+// 1 dong bao cao ERP cho 1 san pham (mo ta muc 2.4)
+function reportRowERP(productId, ym) {
+  const { start, next } = monthBounds(ym);
+  const dauKy    = netTruocNgay(productId, null, 'ERP', start); // gop ca 3 Location
+  const nhapKy   = tongTrongKy(productId, t => t.type === 'Nhập' && (t.location || 'DF') === 'DF' && t.source === 'ERP', start, next);
+  const xuatSX   = tongTrongKy(productId, t => t.type === 'Xuất' && (t.location || 'DF') === 'DF' && t.source === 'ERP', start, next);
+  const xuatRet  = tongTrongKy(productId, t => t.type === 'Xuất' && t.location === 'RETURN', start, next);
+  const xuatNCC  = tongTrongKy(productId, t => t.type === 'Xuất' && t.location === 'Tra NCC', start, next);
+  const cuoiKy   = dauKy + nhapKy - xuatSX - xuatRet - xuatNCC;
+  return { dauKy, nhapKy, xuatSX, xuatRet, xuatNCC, cuoiKy };
+}
+
+// 1 dong bao cao Muon cho 1 san pham (mo ta muc 2.5) - chi Nguon=Muon, Location=DF, so duong
+function reportRowMuon(productId, ym) {
+  const { start, next } = monthBounds(ym);
+  const dauKy   = -netTruocNgay(productId, 'DF', 'Mượn', start); // (Xuat - Nhap) truoc ky, so duong
+  const xuatMuon = tongTrongKy(productId, t => t.type === 'Xuất' && t.source === 'Mượn' && (t.location || 'DF') === 'DF', start, next);
+  const nhapTra  = tongTrongKy(productId, t => t.type === 'Nhập' && t.source === 'Mượn' && (t.location || 'DF') === 'DF', start, next);
+  const cuoiKy   = dauKy + xuatMuon - nhapTra;
+  return { dauKy, xuatMuon, nhapTra, cuoiKy };
+}
+
 function setTab(tab) {
   currentTab = tab;
   ['san-pham','giao-dich','bao-cao','google'].forEach(t => {
@@ -178,6 +309,8 @@ function setTab(tab) {
 
 function render() {
   const main = document.getElementById('main');
+  // Layout desktop: chia 2 cot cho tab Giao dich (form trai, danh sach phai)
+  main.classList.toggle('cols-2', currentTab === 'giao-dich');
   if (currentTab === 'san-pham') return renderProducts(main);
   if (currentTab === 'giao-dich') return renderTransactionForm(main);
   if (currentTab === 'bao-cao') return renderReport(main);
@@ -190,22 +323,105 @@ function renderProducts(main) {
     attachProductForm();
     return;
   }
-  let rows = state.products.map(p => {
-    const s = computeStockTotal(p.id);
-    const low = s.actual <= (p.threshold || 0);
-    return `<div class="row">
-      <div>
-        <div class="prod-code">${p.code}</div>
-        <div class="prod-name">${p.name}</div>
+  main.innerHTML = productFilterHtml()
+    + `<div class="card"><h2 id="product-list-title">Danh mục sản phẩm</h2><div id="product-list"></div></div>`
+    + productFormHtml();
+  attachProductFilter();
+  attachProductForm();
+  renderProductList();
+}
+
+function productFilterHtml() {
+  const f = productFilter;
+  const sel = (v, cur) => v === cur ? ' selected' : '';
+  return `<div class="card filter-card">
+    <h2>Bộ lọc &amp; tìm kiếm</h2>
+    <input class="search" id="pf-q" placeholder="Tìm theo Mã SP hoặc Tên SP..." value="${(f.q || '').replace(/"/g, '&quot;')}">
+    <div class="filter-grid">
+      <select id="pf-status">
+        <option value="all"${sel('all', f.status)}>Trạng thái: Tất cả</option>
+        <option value="low"${sel('low', f.status)}>Chỉ tồn Thấp</option>
+        <option value="ok"${sel('ok', f.status)}>Chỉ tồn Đủ</option>
+      </select>
+      <select id="pf-location">
+        <option value="all"${sel('all', f.location)}>Location: Gộp cả 3</option>
+        <option value="DF"${sel('DF', f.location)}>Chỉ DF</option>
+        <option value="RETURN"${sel('RETURN', f.location)}>Chỉ RETURN</option>
+        <option value="Tra NCC"${sel('Tra NCC', f.location)}>Chỉ Tra NCC</option>
+      </select>
+      <select id="pf-sort">
+        <option value="code"${sel('code', f.sort)}>Sắp xếp: Mã SP</option>
+        <option value="name"${sel('name', f.sort)}>Sắp xếp: Tên SP</option>
+        <option value="stock-asc"${sel('stock-asc', f.sort)}>Tồn thực tế ↑</option>
+        <option value="stock-desc"${sel('stock-desc', f.sort)}>Tồn thực tế ↓</option>
+      </select>
+    </div>
+    <button class="btn-secondary" id="pf-reset">Xóa bộ lọc</button>
+  </div>`;
+}
+
+function attachProductFilter() {
+  const q = document.getElementById('pf-q');
+  const status = document.getElementById('pf-status');
+  const location = document.getElementById('pf-location');
+  const sort = document.getElementById('pf-sort');
+  if (!q) return;
+  q.oninput = () => { productFilter.q = q.value; saveProductFilter(); renderProductList(); };
+  [status, location, sort].forEach(el => el.onchange = () => {
+    productFilter.status = status.value;
+    productFilter.location = location.value;
+    productFilter.sort = sort.value;
+    saveProductFilter();
+    renderProductList();
+  });
+  document.getElementById('pf-reset').onclick = () => {
+    productFilter = { q: '', status: 'all', location: 'all', sort: 'code' };
+    saveProductFilter();
+    renderProducts(document.getElementById('main'));
+  };
+}
+
+function renderProductList() {
+  const f = productFilter;
+  const loc = f.location === 'all' ? null : f.location;
+  let list = state.products.map(p => {
+    const s = computeStock(p.id, loc);
+    return { p, s, low: s.actual <= (p.threshold || 0) };
+  });
+  const q = (f.q || '').trim().toLowerCase();
+  if (q) list = list.filter(x => (x.p.code + ' ' + x.p.name).toLowerCase().includes(q));
+  if (f.status === 'low') list = list.filter(x => x.low);
+  else if (f.status === 'ok') list = list.filter(x => !x.low);
+  list.sort((a, b) => {
+    if (f.sort === 'name') return String(a.p.name).localeCompare(String(b.p.name), 'vi');
+    if (f.sort === 'stock-asc') return a.s.actual - b.s.actual;
+    if (f.sort === 'stock-desc') return b.s.actual - a.s.actual;
+    return String(a.p.code).localeCompare(String(b.p.code), 'vi', { numeric: true });
+  });
+
+  const title = document.getElementById('product-list-title');
+  if (title) title.textContent = `Danh mục sản phẩm (${list.length}/${state.products.length})`;
+  const cont = document.getElementById('product-list');
+  if (!cont) return;
+  if (list.length === 0) {
+    cont.innerHTML = '<div class="empty">Không có sản phẩm khớp bộ lọc.</div>';
+    return;
+  }
+  const locTag = loc ? `<span class="loc-badge">${loc}</span>` : '';
+  cont.innerHTML = list.map(({ p, s, low }) => `<div class="row">
+      <div style="display:flex;align-items:center;min-width:0">
+        ${p.image ? `<img class="prod-thumb" src="${p.image}" alt="" onerror="this.style.display='none'">` : ''}
+        <div style="min-width:0">
+          <div class="prod-code">${p.code}${locTag}</div>
+          <div class="prod-name">${p.name}</div>
+          <div class="prod-sub">Ngưỡng ${fmt(p.threshold || 0)} · ERP ${fmt(s.erp)} · Mượn ${fmt(s.muon)}</div>
+        </div>
       </div>
-      <div style="text-align:right">
+      <div style="text-align:right;flex:none">
         <div class="stock-actual ${low ? 'low' : 'ok'}">${fmt(s.actual)} ${p.unit || ''}</div>
         <span class="badge ${low ? 'low' : 'ok'}">${low ? 'Thấp' : 'Đủ'}</span>
       </div>
-    </div>`;
-  }).join('');
-  main.innerHTML = `<div class="card"><h2>Danh mục sản phẩm (${state.products.length})</h2>${rows}</div>` + productFormHtml();
-  attachProductForm();
+    </div>`).join('');
 }
 
 function productFormHtml() {
@@ -215,6 +431,7 @@ function productFormHtml() {
     <label>Tên SP</label><input id="np-name">
     <label>ĐVT</label><input id="np-unit">
     <label>Ngưỡng cảnh báo tồn thấp</label><input id="np-threshold" type="number" value="0">
+    <label>Link hình ảnh (tùy chọn)</label><input id="np-image" placeholder="https://...">
     <button class="btn-primary" id="np-save">Thêm sản phẩm</button>
   </div>`;
 }
@@ -226,8 +443,9 @@ function attachProductForm() {
     const name = document.getElementById('np-name').value.trim();
     const unit = document.getElementById('np-unit').value.trim();
     const threshold = Number(document.getElementById('np-threshold').value) || 0;
+    const image = document.getElementById('np-image').value.trim();
     if (!code || !name) { toast('Nhập Mã SP và Tên SP'); return; }
-    state.products.push({ id: uid(), code, name, unit, threshold });
+    state.products.push({ id: uid(), code, name, unit, threshold, image });
     save(); toast('Đã thêm sản phẩm'); render();
   };
 }
@@ -291,11 +509,38 @@ function renderReport(main) {
     main.innerHTML = '<div class="card"><div class="empty">Chưa có dữ liệu để báo cáo.</div></div>';
     return;
   }
-  const totalActual = state.products.reduce((s,p) => s + computeStockTotal(p.id).actual, 0);
-  const lowCount = state.products.filter(p => computeStockTotal(p.id).actual <= (p.threshold||0)).length;
-  let rows = state.products.map(p => {
+  const m = reportView.mode;
+  const segBtn = (val, label) => `<button class="${m === val ? 'active' : ''}" data-mode="${val}">${label}</button>`;
+  let body = '';
+  if (m === 'erp') body = reportMonthlyHtml('erp');
+  else if (m === 'muon') body = reportMonthlyHtml('muon');
+  else body = reportSnapshotHtml();
+
+  main.innerHTML = `
+    <div class="seg">
+      ${segBtn('snapshot', 'Tồn hiện tại')}
+      ${segBtn('erp', 'Tháng ERP')}
+      ${segBtn('muon', 'Tháng Mượn')}
+    </div>
+    ${body}`;
+
+  main.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
+    reportView.mode = b.dataset.mode;
+    saveReportView();
+    render();
+  });
+  const mp = document.getElementById('rp-month');
+  if (mp) mp.onchange = () => { reportView.month = mp.value || reportView.month; saveReportView(); render(); };
+  const hz = document.getElementById('rp-hidezero');
+  if (hz) hz.onchange = () => { reportView.hideZero = hz.checked; saveReportView(); render(); };
+}
+
+function reportSnapshotHtml() {
+  const totalActual = state.products.reduce((s, p) => s + computeStockTotal(p.id).actual, 0);
+  const lowCount = state.products.filter(p => computeStockTotal(p.id).actual <= (p.threshold || 0)).length;
+  const rows = state.products.map(p => {
     const s = computeStockTotal(p.id);
-    const low = s.actual <= (p.threshold||0);
+    const low = s.actual <= (p.threshold || 0);
     const locLines = LOCATIONS.map(loc => {
       const sl = computeStock(p.id, loc);
       if (sl.erp === 0 && sl.muon === 0) return '';
@@ -309,23 +554,91 @@ function renderReport(main) {
         </div>
         <div style="text-align:right;font-family:monospace;font-size:12px">
           ERP ${fmt(s.erp)}<br>Mượn ${fmt(s.muon)}<br>
-          <b class="${low?'low':'ok'}">TT ${fmt(s.actual)}</b>
+          <b class="${low ? 'low' : 'ok'}">TT ${fmt(s.actual)}</b>
         </div>
       </div>
       ${locLines ? '<div class="loc-detail">' + locLines + '</div>' : ''}
     </div>`;
   }).join('');
-  main.innerHTML = `
+  return `
     <div class="card">
       <div class="stat-grid">
         <div class="stat"><div class="lbl">Số SP</div><div class="val">${state.products.length}</div></div>
         <div class="stat"><div class="lbl">Tồn thực tế</div><div class="val">${fmt(totalActual)}</div></div>
-        <div class="stat"><div class="lbl">Cảnh báo</div><div class="val" style="color:${lowCount>0?'#f87171':'#e5e7eb'}">${lowCount}</div></div>
+        <div class="stat"><div class="lbl">Cảnh báo</div><div class="val" style="color:${lowCount > 0 ? '#f87171' : '#e5e7eb'}">${lowCount}</div></div>
       </div>
     </div>
-    <div class="card"><h2>Chi tiết tồn theo sản phẩm (Tổng chung, có tách Location bên dưới nếu &gt;1 Location)</h2>${rows}</div>
+    <div class="card"><h2>Chi tiết tồn theo sản phẩm (Tổng chung, tách Location bên dưới nếu &gt;1 Location)</h2>${rows}</div>
     <div class="card">
       <button class="btn-secondary" onclick="if(confirm('Xóa toàn bộ dữ liệu trên máy này?')){localStorage.removeItem('${STORAGE_KEY}');state={products:[],transactions:[]};render();toast('Đã xóa dữ liệu');}">Xóa toàn bộ dữ liệu trên máy</button>
+    </div>`;
+}
+
+// Bao cao thang ERP (muc 2.4) hoac Muon (muc 2.5). type = 'erp' | 'muon'
+function reportMonthlyHtml(type) {
+  const ym = reportView.month;
+  const isErp = type === 'erp';
+  const heads = isErp
+    ? ['Mã SP', 'Tên SP', 'ĐVT', 'Tồn đầu kỳ', 'Nhập trong kỳ', 'Xuất sản xuất', 'Xuất trả return', 'Xuất trả NCC', 'Tồn cuối']
+    : ['Mã SP', 'Tên SP', 'ĐVT', 'Tồn đầu kỳ', 'Xuất mượn từ ERP', 'Nhập trả lại', 'Tồn cuối kỳ'];
+
+  const tot = isErp
+    ? { dauKy: 0, nhapKy: 0, xuatSX: 0, xuatRet: 0, xuatNCC: 0, cuoiKy: 0 }
+    : { dauKy: 0, xuatMuon: 0, nhapTra: 0, cuoiKy: 0 };
+
+  let bodyRows = '';
+  let shown = 0;
+  state.products.forEach(p => {
+    const r = isErp ? reportRowERP(p.id, ym) : reportRowMuon(p.id, ym);
+    Object.keys(tot).forEach(k => tot[k] += r[k]);
+    const allZero = Object.keys(tot).every(k => r[k] === 0);
+    if (reportView.hideZero && allZero) return;
+    shown++;
+    const cells = isErp
+      ? [r.dauKy, r.nhapKy, r.xuatSX, r.xuatRet, r.xuatNCC, r.cuoiKy]
+      : [r.dauKy, r.xuatMuon, r.nhapTra, r.cuoiKy];
+    bodyRows += `<tr>
+      <td class="txt">${p.code}</td>
+      <td class="txt">${p.name}</td>
+      <td class="txt">${p.unit || ''}</td>
+      ${cells.map((v, i) => `<td${i === cells.length - 1 ? ' class="strong"' : ''}>${fmt(v)}</td>`).join('')}
+    </tr>`;
+  });
+
+  const totCells = isErp
+    ? [tot.dauKy, tot.nhapKy, tot.xuatSX, tot.xuatRet, tot.xuatNCC, tot.cuoiKy]
+    : [tot.dauKy, tot.xuatMuon, tot.nhapTra, tot.cuoiKy];
+
+  const emptyRow = shown === 0
+    ? `<tr><td class="txt" colspan="${heads.length}" style="text-align:center;color:#6b7280">Không có dòng nào${reportView.hideZero ? ' (đang ẩn dòng toàn số 0)' : ''}.</td></tr>`
+    : '';
+
+  return `
+    <div class="card">
+      <h2>Báo cáo tháng ${isErp ? 'ERP' : 'Mượn'}</h2>
+      <label>Tháng xem</label>
+      <input type="month" id="rp-month" value="${ym}">
+      <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
+        <input type="checkbox" id="rp-hidezero" style="width:auto;margin:0"${reportView.hideZero ? ' checked' : ''}>
+        Ẩn dòng toàn số 0
+      </label>
+      <div class="filter-summary">
+        ${isErp
+          ? 'Tồn đầu kỳ = cộng dồn Nhập−Xuất (Nguồn=ERP, gộp cả 3 Location) của mọi giao dịch trước ngày 01 của tháng. Tồn cuối = Đầu kỳ + Nhập − Xuất SX − Xuất return − Xuất NCC.'
+          : 'Chỉ tính Nguồn=Mượn, Location=DF. Tồn đầu kỳ (số dương) = cộng dồn Xuất−Nhập trước ngày 01 của tháng. Tồn cuối kỳ = Đầu kỳ + Xuất mượn − Nhập trả lại.'}
+      </div>
+    </div>
+    <div class="card">
+      <div class="report-wrap">
+        <table class="rpt">
+          <thead><tr>${heads.map((h, i) => `<th${i < 3 ? ' class="txt"' : ''}>${h}</th>`).join('')}</tr></thead>
+          <tbody>${bodyRows}${emptyRow}</tbody>
+          <tfoot><tr>
+            <td class="txt" colspan="3">TỔNG (${shown} SP)</td>
+            ${totCells.map(v => `<td>${fmt(v)}</td>`).join('')}
+          </tr></tfoot>
+        </table>
+      </div>
     </div>`;
 }
 
@@ -380,11 +693,12 @@ function importFromWorkbook(wb) {
       if (!codeToId[code]) {
         const id = uid();
         codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0 });
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0, image: r[4] || '' });
       } else {
         const p = state.products.find(pp => pp.code === code);
         p.name = r[1] || p.name; p.unit = r[2] || p.unit;
         p.threshold = r[3] !== '' ? Number(r[3]) : p.threshold;
+        p.image = r[4] || p.image || '';
       }
     }
   }
@@ -416,9 +730,9 @@ function exportExcel() {
 
   const dmData = [
     ['DANH MỤC SẢN PHẨM'], [],
-    ['Mã SP','Tên SP','ĐVT','Ngưỡng cảnh báo']
+    ['Mã SP','Tên SP','ĐVT','Ngưỡng cảnh báo tồn thấp','Link hình ảnh']
   ];
-  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.threshold || 0]));
+  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.threshold || 0, p.image || '']));
   const dmSheet = XLSX.utils.aoa_to_sheet(dmData);
   XLSX.utils.book_append_sheet(wb, dmSheet, 'Danh muc SP');
 
@@ -565,7 +879,10 @@ async function pullFromSheet() {
       if (!codeToId[code]) {
         const id = uid();
         codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0 });
+        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0, image: r[4] || '' });
+      } else {
+        const p = state.products.find(pp => pp.code === code);
+        if (p && !p.image && r[4]) p.image = r[4];
       }
     });
 
@@ -624,11 +941,37 @@ async function pushToSheet() {
 
 load();
 render();
+updateOnlineGate();
 
+// ---------- Bat buoc su dung khi co mang ----------
+// Ung dung yeu cau ket noi Internet de dam bao du lieu luon dong bo voi Google Sheet.
+// Khong con che do offline: khoa toan bo thao tac khi mat mang.
+function updateOnlineGate() {
+  let gate = document.getElementById('offline-gate');
+  if (!navigator.onLine) {
+    if (!gate) {
+      gate = document.createElement('div');
+      gate.id = 'offline-gate';
+      gate.innerHTML = `<div class="offline-box">
+        <div style="font-size:34px">📡</div>
+        <h2>Mất kết nối mạng</h2>
+        <p>Ứng dụng bắt buộc dùng khi có Internet để đồng bộ với Google Sheet.<br>Vui lòng kết nối lại mạng để tiếp tục.</p>
+        <button class="btn-primary" onclick="updateOnlineGate()">Thử lại</button>
+      </div>`;
+      document.body.appendChild(gate);
+    }
+    gate.style.display = 'flex';
+  } else if (gate) {
+    gate.style.display = 'none';
+  }
+}
+window.addEventListener('online', () => { updateOnlineGate(); toast('Đã có mạng trở lại'); });
+window.addEventListener('offline', updateOnlineGate);
+
+// Go bo Service Worker / cache cu (neu tung cai dat ban PWA offline truoc day)
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.error('SW loi:', e));
-  });
+  navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
+  if (window.caches && caches.keys) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
 }
 </script>
 </body>

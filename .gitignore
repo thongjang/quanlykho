@@ -1,0 +1,41 @@
+# --- Visual Studio / VS Code ---
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# --- JetBrains ---
+.idea/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# --- Node (nếu sau này thêm build tool) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json.bak
+
+# --- Build output ---
+dist/
+build/
+*.min.js.map
+
+# --- File Excel xuất ra từ app (không commit dữ liệu) ---
+ton-kho-*.xlsx
+*.xlsx
+*.xls
+~$*
+
+# --- Secrets / cấu hình cục bộ ---
+.env
+.env.local
+config.local.js
+
+# --- Log ---
+*.log
