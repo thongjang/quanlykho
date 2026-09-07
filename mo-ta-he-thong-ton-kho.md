@@ -119,36 +119,42 @@ Tồn thực tế = `Tồn ERP - Tồn mượn`.
 
 ## 4. App HTML di động (`index.html`) — trạng thái hiện tại
 
-File độc lập, chạy trên điện thoại/máy tính. **Bắt buộc dùng khi có mạng** — không còn chế độ offline: Service Worker/cache PWA cũ đã bị gỡ (`sw.js` đã xóa), khi mất kết nối app hiện lớp phủ khóa toàn bộ thao tác (`#offline-gate`) cho tới khi có mạng lại. `manifest.json` giữ lại chỉ để cài như app (installable), không phục vụ offline. Lưu dữ liệu tạm bằng `localStorage` (key `inv_mobile_data_v2`) như bộ nhớ đệm phiên làm việc, đồng bộ 2 chiều với Google Sheet qua Sheets API (OAuth Client ID + Spreadsheet ID do người dùng tự nhập trong tab "Google Sheet" của app).
+File độc lập, chạy trên điện thoại/máy tính. **Bắt buộc dùng khi có mạng** — không còn chế độ offline: Service Worker/cache PWA cũ bị gỡ (`sw.js` chỉ còn bản "tự huỷ" để dọn máy đã cài PWA cũ), khi mất kết nối app hiện lớp phủ khóa toàn bộ thao tác (`#offline-gate`) cho tới khi có mạng lại. `manifest.json` giữ lại chỉ để cài như app (installable).
 
-Giao diện có **layout desktop** riêng (`@media (min-width: 900px)`): thanh điều hướng chuyển thành sidebar bên trái, vùng nội dung giới hạn bề rộng và căn giữa, tab Giao dịch chia 2 cột (form trái — lịch sử phải).
+**Truy vấn trực tiếp Google Sheet** — Sheet là nguồn dữ liệu **duy nhất**:
+- Không còn Nhập Excel / Xuất Excel, không còn bước "Đồng bộ" thủ công (đã bỏ `xlsx` CDN, `synced`, `localStorage` cho dữ liệu).
+- `state` chỉ là bản sao trong bộ nhớ; `localStorage` chỉ giữ cấu hình (`inv_google_cfg_v2`) và tuỳ chọn giao diện (`inv_product_filter_v1`, `inv_report_view_v1`).
+- Đăng nhập Google xong → `loadFromSheet()` tự chạy: đọc `Danh mục SP!A4:E503` + `Giao dịch!A4:I3000`, dựng lại toàn bộ `state`. Nút "↻ Tải lại" ở header / tab Google / cuối báo cáo để nạp lại. Mở lại app có sẵn cấu hình thì tự xin token (`prompt:''`) và tải ngay.
+- Thêm sản phẩm → `addProductRowToSheet()` ghi 1 dòng `Danh mục SP!A:E` vào dòng trống đầu tiên (theo cột A).
+- Thêm giao dịch → `addTransactionRowToSheet()` ghi `A:B` rồi `D:I` (BỎ QUA cột C – công thức Tên SP), dò dòng trống theo cột B, cột I = ngày nhập liệu hôm nay.
+- `id` ổn định theo Sheet: sản phẩm `p_<mã>`, giao dịch `g_<số dòng>`; mỗi bản ghi giữ `_row` (số dòng trên Sheet).
+- `sheetsGet/sheetsUpdate` gặp HTTP 401 → xoá token, hiện lại màn hình đăng nhập.
 
-**Mô hình dữ liệu trong app (đã khớp với Sheet thật):**
+Giao diện:
+- **Layout desktop** (`@media (min-width: 900px)`): điều hướng thành sidebar trái, nội dung giới hạn bề rộng & căn giữa, tab Giao dịch chia 2 cột.
+- **Không có scroll ngang ở bất kỳ màn hình nào**: `html,body{overflow-x:hidden}`; bảng báo cáo rộng chỉ hiện ở desktop, còn mobile render dạng **thẻ** (`.rpt-cards` — mỗi SP 1 thẻ, lưới nhãn/giá trị 2 cột).
+
+**Mô hình dữ liệu trong app:**
 ```js
-product = { id, code, name, unit, threshold, image /* Link hình ảnh, cột E Danh mục SP */ }
-transaction = { id, date, productId, type /* 'Nhập'|'Xuất' */, source /* 'ERP'|'Mượn' */,
-                 location /* 'DF'|'RETURN'|'Tra NCC' */, qty, note, synced }
+product = { id:'p_<mã>', _row, code, name, unit, threshold, image /* cột E Danh mục SP */ }
+transaction = { id:'g_<dòng>', _row, date, productId, type /* 'Nhập'|'Xuất' */,
+                source /* 'ERP'|'Mượn' */, location /* 'DF'|'RETURN'|'Tra NCC' */, qty, note }
 ```
 
 **Đã hoàn thiện:**
-- 4 tab: Sản phẩm, Giao dịch (form thêm giao dịch có đủ Location), Báo cáo, Google Sheet (kết nối/đồng bộ).
-- Tab **Sản phẩm** có bộ lọc + tìm kiếm (`productFilter`, lưu ở key `inv_product_filter_v1`): tìm theo Mã/Tên, lọc theo Trạng thái (Thấp/Đủ), lọc theo Location (gộp cả 3 hoặc chỉ 1 — số tồn hiển thị đổi theo Location đang chọn), sắp xếp theo Mã/Tên/Tồn thực tế tăng-giảm. Ô tìm kiếm không mất focus khi gõ vì chỉ vẽ lại `#product-list`.
-- Tab **Báo cáo** có 3 chế độ (`reportView`, key `inv_report_view_v1`): "Tồn hiện tại" (snapshot cũ), "Tháng ERP", "Tháng Mượn".
-  - `netTruocNgay(productId, loc, source, cutoff)` — bản JS của `tonTruocNgay()` bên Apps Script (cộng dồn Nhập−Xuất mọi giao dịch có ngày `< cutoff`).
-  - `reportRowERP()` đúng mục 2.4: Tồn đầu kỳ = `netTruocNgay(id, null, 'ERP', ngày-01)` (gộp cả 3 Location); Nhập trong kỳ / Xuất sản xuất = DF+ERP trong tháng; Xuất trả return = Location RETURN; Xuất trả NCC = Location "Tra NCC"; Tồn cuối = D+E−F−G−H.
-  - `reportRowMuon()` đúng mục 2.5: chỉ Nguồn=Mượn & Location=DF; Tồn đầu kỳ (số dương) = `−netTruocNgay(id, 'DF', 'Mượn', ngày-01)`; Tồn cuối kỳ = D + Xuất mượn − Nhập trả lại.
-  - Chọn tháng bằng `<input type="month">`, có checkbox "Ẩn dòng toàn số 0", bảng có dòng TỔNG.
-- `computeStock(productId, loc)` — tính đúng quy ước dấu mới (Tồn mượn dương, Tồn thực tế = ERP − Mượn), `loc=null` để cộng dồn cả 3 Location.
-- Nhập/Xuất Excel: nhận diện đúng tên sheet có dấu ("Danh mục SP", "Giao dịch"), đúng số cột, có Location + cột E "Link hình ảnh" của Danh mục SP.
-- Đồng bộ lên Sheet (`pushToSheet`): tách ghi 2 vùng (A:B rồi D:I), không đụng cột C, tự tìm dòng trống dựa theo cột B — logic giống hệt `timDongTrongTiepTheo()` bên Apps Script.
-- Đồng bộ tải về (`pullFromSheet`): đọc `Danh mục SP!A4:E500` và `Giao dịch!A4:I3000`, khử trùng lặp bằng key ghép (ngày+mã+loại+nguồn+location+SL+ghi chú).
+- 4 tab: Sản phẩm, Giao dịch, Báo cáo, Google Sheet. Khi chưa đăng nhập, mọi tab (trừ Google Sheet) hiện lời nhắc sang tab Google Sheet.
+- Tab **Sản phẩm** — bộ lọc + tìm kiếm (`productFilter`): tìm theo Mã/Tên, lọc Trạng thái (Thấp/Đủ), lọc Location (gộp cả 3 hoặc 1 — số tồn đổi theo Location), sắp xếp Mã/Tên/Tồn ↑↓. Ô tìm kiếm không mất focus (chỉ vẽ lại `#product-list`).
+- Tab **Báo cáo** — 3 chế độ (`reportView`): "Tồn hiện tại", "Tháng ERP", "Tháng Mượn"; có **card bộ lọc chung**: ô tìm Mã/Tên (`rp-q`, lọc mọi chế độ), snapshot có select Trạng thái, chế độ tháng có chọn tháng `‹ [input month] ›` + checkbox "Ẩn dòng toàn số 0". Bảng/thẻ đều có dòng TỔNG.
+  - `netTruocNgay(productId, loc, source, cutoff)` — bản JS của `tonTruocNgay()` (cộng dồn Nhập−Xuất mọi giao dịch ngày `< cutoff`).
+  - `reportRowERP()` đúng mục 2.4; `reportRowMuon()` đúng mục 2.5 (chỉ Nguồn=Mượn & Location=DF, số dương).
+- `computeStock(productId, loc)` — quy ước dấu mới (Tồn mượn dương, Tồn thực tế = ERP − Mượn), `loc=null` cộng dồn cả 3 Location.
 
-**Còn thiếu / có thể cần làm tiếp (gợi ý cho Claude Code):**
-1. Chưa có cơ chế xử lý xoá/sửa giao dịch đã đồng bộ (hiện chỉ có thêm mới).
-2. Chưa validate ràng buộc "Nguồn=Mượn chỉ hợp lệ khi Location=DF" ở phía giao diện (Sheet cũng chưa ép buộc, chỉ là quy ước).
-3. Form thêm giao dịch chưa có phím tắt chọn nhanh Location theo Loại (ví dụ chọn Loại=Xuất thì gợi ý Location=RETURN hoặc Tra NCC ở đầu danh sách).
-4. Đồng bộ hiện chạy tuần tự từng giao dịch một (2 lệnh gọi API/giao dịch) — có thể chậm nếu nhiều giao dịch chờ đồng bộ cùng lúc; có thể cân nhắc gộp bằng `batchUpdate` nếu cần tối ưu tốc độ.
-5. Báo cáo tháng bên app tính lại từ toàn bộ `state.transactions` mỗi lần render — nếu dữ liệu lớn (hàng nghìn giao dịch) có thể cân nhắc cache theo tháng.
+**Còn thiếu / có thể cần làm tiếp:**
+1. Chưa có xoá/sửa sản phẩm & giao dịch (hiện chỉ thêm mới; đã có `_row` sẵn để làm).
+2. Chưa validate "Nguồn=Mượn chỉ hợp lệ khi Location=DF" ở giao diện.
+3. Form giao dịch chưa gợi ý nhanh Location theo Loại.
+4. Ghi giao dịch dùng 2 lệnh `sheetsUpdate` + 1 `sheetsGet` dò dòng trống — nhiều thao tác liên tiếp có thể chậm; cân nhắc `append`/`batchUpdate`.
+5. Chưa xử lý token hết hạn tự động (chỉ báo lỗi, người dùng bấm đăng nhập lại).
 
 ## 5. Ràng buộc / lưu ý quan trọng khi sửa code
 

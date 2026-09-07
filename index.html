@@ -12,10 +12,10 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Ton kho">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   * { box-sizing: border-box; }
+  html, body { max-width: 100%; overflow-x: hidden; }
   body {
     margin: 0; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
     background: #0f172a; color: #e5e7eb; padding-bottom: 70px;
@@ -30,6 +30,9 @@
     background: #1f2937; color: #e5e7eb; border: 1px solid #374151; border-radius: 6px;
     padding: 6px 10px; font-size: 12px;
   }
+  header button:disabled { opacity: .5; }
+  .conn-state { font-size: 11px; color: #9ca3af; align-self: center; }
+  .conn-state.on { color: #34d399; }
   main { padding: 12px; }
   .card {
     background: #111827; border: 1px solid #1f2937; border-radius: 10px; padding: 12px; margin-bottom: 12px;
@@ -37,8 +40,8 @@
   .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #9ca3af; margin: 0 0 10px; }
   .row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid #1f2937; }
   .row:last-child { border-bottom: none; }
-  .prod-code { font-family: monospace; font-size: 11px; color: #6b7280; }
-  .prod-name { font-size: 14px; }
+  .prod-code { font-family: monospace; font-size: 11px; color: #6b7280; overflow-wrap: anywhere; }
+  .prod-name { font-size: 14px; overflow-wrap: anywhere; }
   .stock-actual { font-family: monospace; font-weight: 600; }
   .low { color: #f87171; }
   .ok { color: #34d399; }
@@ -83,14 +86,29 @@
   .seg { display: flex; gap: 6px; margin-bottom: 12px; }
   .seg button { flex: 1; background: #0b1220; border: 1px solid #374151; color: #9ca3af; border-radius: 8px; padding: 9px 4px; font-size: 12px; }
   .seg button.active { background: #f59e0b; color: #111827; border-color: #f59e0b; font-weight: 700; }
-  .report-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -4px; }
+  .month-pick { display: flex; align-items: stretch; gap: 6px; margin-top: 4px; }
+  .month-pick input { margin: 0; flex: 1; min-width: 0; }
+  .month-pick button { flex: none; width: 40px; background: #0b1220; border: 1px solid #374151; color: #e5e7eb; border-radius: 6px; font-size: 18px; }
+  label.chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #9ca3af; }
+  label.chk input { width: auto; margin: 0; }
+
+  /* Bao cao: mobile = the (khong scroll ngang), desktop = bang */
+  .rpt-cards { display: block; }
+  .rpt-card { border: 1px solid #1f2937; border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+  .rpt-card.rpt-total { background: #0b1220; }
+  .rpt-card-h { font-size: 12px; margin-bottom: 6px; overflow-wrap: anywhere; }
+  .rpt-card-g { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 12px; }
+  .rpt-card-g > div { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; padding: 3px 0; border-bottom: 1px solid #161f2e; }
+  .rpt-card-g > div span { color: #9ca3af; }
+  .rpt-card-g > div b { font-family: monospace; }
+  .rpt-card-g > div b.strong { color: #f59e0b; }
+  .report-wrap { display: none; }
   table.rpt { border-collapse: collapse; width: 100%; font-size: 11px; }
   table.rpt th, table.rpt td { border: 1px solid #1f2937; padding: 6px 8px; text-align: right; white-space: nowrap; }
   table.rpt th { color: #9ca3af; font-weight: 600; background: #0b1220; }
-  table.rpt th.txt, table.rpt td.txt { text-align: left; }
+  table.rpt th.txt, table.rpt td.txt { text-align: left; white-space: normal; }
   table.rpt td.strong { font-weight: 700; color: #e5e7eb; }
   table.rpt tfoot td { font-weight: 700; background: #0b1220; }
-  #fileInput { display: none; }
   .toast {
     position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: #1f2937;
     color: #e5e7eb; padding: 8px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .2s;
@@ -136,8 +154,11 @@
     .stat-grid { grid-template-columns: repeat(6, 1fr); }
     .filter-grid { grid-template-columns: repeat(4, 1fr); }
     .filter-card .btn-secondary { width: auto; padding: 8px 20px; }
+    .rpt-cards { display: none; }
+    .report-wrap { display: block; overflow-x: hidden; }
     table.rpt { font-size: 13px; }
     table.rpt th, table.rpt td { padding: 9px 12px; }
+    table.rpt th, table.rpt td { white-space: normal; }
     .toast { bottom: 24px; }
     #main.cols-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
   }
@@ -151,11 +172,10 @@
 <header>
   <h1>📦 Tồn kho thực tế</h1>
   <div class="actions">
-    <button onclick="document.getElementById('fileInput').click()">Nhập Excel</button>
-    <button onclick="exportExcel()">Xuất Excel</button>
+    <span id="conn-state" class="conn-state">Chưa kết nối</span>
+    <button id="btn-reload" onclick="loadFromSheet()">↻ Tải lại</button>
   </div>
 </header>
-<input type="file" id="fileInput" accept=".xlsx,.xls">
 
 <main id="main"></main>
 
@@ -169,18 +189,26 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const STORAGE_KEY = 'inv_mobile_data_v2';
 const GOOGLE_CFG_KEY = 'inv_google_cfg_v2';
 const PRODUCT_FILTER_KEY = 'inv_product_filter_v1';
 const REPORT_VIEW_KEY = 'inv_report_view_v1';
 const LOCATIONS = ['DF', 'RETURN', 'Tra NCC'];
+// Hang du lieu tren Sheet
+const DM_FIRST_ROW = 4;   // "Danh mục SP" du lieu tu dong 4
+const GD_FIRST_ROW = 4;   // "Giao dịch" du lieu tu dong 4
+const GD_LAST_ROW = 3000;
+
+// state chi la ban sao trong bo nho cua Google Sheet (nguon du lieu duy nhat) - KHONG luu localStorage
 let state = { products: [], transactions: [] };
 let currentTab = 'san-pham';
 let googleCfg = { clientId: '', spreadsheetId: '' };
 let accessToken = null;
 let tokenClient = null;
+let dataLoaded = false;
+let lastLoaded = null;
+let loading = false;
 let productFilter = { q: '', status: 'all', location: 'all', sort: 'code' };
-let reportView = { mode: 'snapshot', month: new Date().toISOString().slice(0, 7), hideZero: true };
+let reportView = { mode: 'snapshot', month: new Date().toISOString().slice(0, 7), hideZero: true, q: '', status: 'all' };
 
 function uid() { return Math.random().toString(36).slice(2, 9); }
 function fmt(n) { return Number(n || 0).toLocaleString('vi-VN'); }
@@ -191,12 +219,7 @@ function toast(msg) {
 }
 
 function load() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) state = JSON.parse(raw);
-  } catch (e) { console.error(e); }
-  if (!state.products) state.products = [];
-  if (!state.transactions) state.transactions = [];
+  // Chi doc cau hinh / tuy chon giao dien tu localStorage - du lieu ton kho luon lay truc tiep tu Sheet.
   try {
     const rawCfg = localStorage.getItem(GOOGLE_CFG_KEY);
     if (rawCfg) googleCfg = JSON.parse(rawCfg);
@@ -219,8 +242,17 @@ function saveProductFilter() {
 function saveReportView() {
   localStorage.setItem(REPORT_VIEW_KEY, JSON.stringify(reportView));
 }
-function save() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+
+function updateConnState() {
+  const el = document.getElementById('conn-state');
+  const btn = document.getElementById('btn-reload');
+  if (el) {
+    el.classList.toggle('on', !!accessToken);
+    el.textContent = !accessToken ? 'Chưa kết nối'
+      : loading ? 'Đang tải...'
+      : dataLoaded ? ('Đã kết nối · ' + (lastLoaded ? lastLoaded.toLocaleTimeString('vi-VN') : '')) : 'Đã đăng nhập';
+  }
+  if (btn) btn.disabled = !accessToken || loading;
 }
 
 // Tinh Ton ERP / Ton muon (SO DUONG, the hien khoan dang treo chua can tru) / Ton thuc te = ERP - muon
@@ -309,17 +341,31 @@ function setTab(tab) {
 
 function render() {
   const main = document.getElementById('main');
+  updateConnState();
   // Layout desktop: chia 2 cot cho tab Giao dich (form trai, danh sach phai)
-  main.classList.toggle('cols-2', currentTab === 'giao-dich');
+  main.classList.toggle('cols-2', currentTab === 'giao-dich' && !!accessToken);
+  if (currentTab === 'google') return renderGoogle(main);
+  if (!accessToken) {
+    main.classList.remove('cols-2');
+    main.innerHTML = `<div class="card"><div class="empty">
+      Ứng dụng truy vấn trực tiếp Google Sheet.<br>
+      Vào tab <b>Google Sheet</b> để nhập cấu hình và đăng nhập.
+      <div style="margin-top:14px"><button class="btn-primary" style="max-width:220px;margin:0 auto" onclick="setTab('google')">Mở tab Google Sheet</button></div>
+    </div></div>`;
+    return;
+  }
+  if (!dataLoaded && loading) {
+    main.innerHTML = '<div class="card"><div class="empty">Đang tải dữ liệu từ Google Sheet...</div></div>';
+    return;
+  }
   if (currentTab === 'san-pham') return renderProducts(main);
   if (currentTab === 'giao-dich') return renderTransactionForm(main);
   if (currentTab === 'bao-cao') return renderReport(main);
-  if (currentTab === 'google') return renderGoogle(main);
 }
 
 function renderProducts(main) {
   if (state.products.length === 0) {
-    main.innerHTML = '<div class="card"><div class="empty">Chưa có sản phẩm nào.<br>Nhấn "Nhập Excel" để tải dữ liệu, hoặc thêm sản phẩm bên dưới.</div></div>' + productFormHtml();
+    main.innerHTML = '<div class="card"><div class="empty">Danh mục "Danh mục SP" trên Sheet đang trống, hoặc chưa tải. Bấm "↻ Tải lại", hoặc thêm sản phẩm bên dưới (ghi thẳng lên Sheet).</div></div>' + productFormHtml();
     attachProductForm();
     return;
   }
@@ -438,15 +484,26 @@ function productFormHtml() {
 function attachProductForm() {
   const btn = document.getElementById('np-save');
   if (!btn) return;
-  btn.onclick = () => {
+  btn.onclick = async () => {
     const code = document.getElementById('np-code').value.trim();
     const name = document.getElementById('np-name').value.trim();
     const unit = document.getElementById('np-unit').value.trim();
     const threshold = Number(document.getElementById('np-threshold').value) || 0;
     const image = document.getElementById('np-image').value.trim();
     if (!code || !name) { toast('Nhập Mã SP và Tên SP'); return; }
-    state.products.push({ id: uid(), code, name, unit, threshold, image });
-    save(); toast('Đã thêm sản phẩm'); render();
+    if (!accessToken) { toast('Cần đăng nhập Google trước'); return; }
+    if (state.products.some(p => String(p.code) === code)) { toast('Mã SP đã tồn tại'); return; }
+    btn.disabled = true; btn.textContent = 'Đang ghi lên Sheet...';
+    try {
+      const row = await addProductRowToSheet({ code, name, unit, threshold, image });
+      state.products.push({ id: 'p_' + code, _row: row, code, name, unit, threshold, image });
+      toast('Đã thêm sản phẩm vào Sheet');
+      render();
+    } catch (e) {
+      console.error(e);
+      toast('Lỗi ghi Sheet: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Thêm sản phẩm';
+    }
   };
 }
 
@@ -473,7 +530,8 @@ function renderTransactionForm(main) {
     <button class="btn-primary" id="tx-save">Lưu giao dịch</button>
   </div>
   <div class="card"><h2>Giao dịch gần đây</h2>${recentTxHtml()}</div>`;
-  document.getElementById('tx-save').onclick = () => {
+  const txBtn = document.getElementById('tx-save');
+  txBtn.onclick = async () => {
     const date = document.getElementById('tx-date').value;
     const productId = document.getElementById('tx-product').value;
     const type = document.getElementById('tx-type').value;
@@ -482,8 +540,20 @@ function renderTransactionForm(main) {
     const qty = Number(document.getElementById('tx-qty').value);
     const note = document.getElementById('tx-note').value.trim();
     if (!date || !qty || qty <= 0) { toast('Nhập ngày và số lượng > 0'); return; }
-    state.transactions.push({ id: uid(), date, productId, type, source, location, qty, note, synced: false });
-    save(); toast('Đã lưu giao dịch'); renderTransactionForm(main);
+    if (!accessToken) { toast('Cần đăng nhập Google trước'); return; }
+    const p = state.products.find(pp => pp.id === productId);
+    if (!p) { toast('Sản phẩm không hợp lệ'); return; }
+    txBtn.disabled = true; txBtn.textContent = 'Đang ghi lên Sheet...';
+    try {
+      const row = await addTransactionRowToSheet({ date, code: p.code, type, source, location, qty, note });
+      state.transactions.push({ id: 'g_' + row, _row: row, date, productId, type, source, location, qty, note });
+      toast('Đã ghi giao dịch vào Sheet');
+      renderTransactionForm(main);
+    } catch (e) {
+      console.error(e);
+      toast('Lỗi ghi Sheet: ' + e.message);
+      txBtn.disabled = false; txBtn.textContent = 'Lưu giao dịch';
+    }
   };
 }
 
@@ -493,10 +563,9 @@ function recentTxHtml() {
   return items.map(t => {
     const p = state.products.find(pp => pp.id === t.productId);
     const sign = t.type === 'Nhập' ? '+' : '-';
-    const pendingBadge = t.synced === false ? '<span class="sync-badge pending">chưa đồng bộ</span>' : '';
     return `<div class="row">
       <div>
-        <div class="prod-code">${t.date} · ${t.source === 'ERP' ? 'ERP' : 'Mượn'}<span class="loc-badge">${t.location || 'DF'}</span>${pendingBadge}</div>
+        <div class="prod-code">${t.date} · ${t.source === 'ERP' ? 'ERP' : 'Mượn'}<span class="loc-badge">${t.location || 'DF'}</span></div>
         <div class="prod-name">${p ? p.code : '?'} ${t.note ? '· ' + t.note : ''}</div>
       </div>
       <div class="stock-actual">${sign}${fmt(t.qty)}</div>
@@ -506,72 +575,125 @@ function recentTxHtml() {
 
 function renderReport(main) {
   if (state.products.length === 0) {
-    main.innerHTML = '<div class="card"><div class="empty">Chưa có dữ liệu để báo cáo.</div></div>';
+    main.innerHTML = '<div class="card"><div class="empty">Chưa có dữ liệu để báo cáo. Bấm "↻ Tải lại".</div></div>';
     return;
   }
   const m = reportView.mode;
   const segBtn = (val, label) => `<button class="${m === val ? 'active' : ''}" data-mode="${val}">${label}</button>`;
-  let body = '';
-  if (m === 'erp') body = reportMonthlyHtml('erp');
-  else if (m === 'muon') body = reportMonthlyHtml('muon');
-  else body = reportSnapshotHtml();
-
   main.innerHTML = `
     <div class="seg">
       ${segBtn('snapshot', 'Tồn hiện tại')}
       ${segBtn('erp', 'Tháng ERP')}
       ${segBtn('muon', 'Tháng Mượn')}
     </div>
-    ${body}`;
+    <div id="report-controls"></div>
+    <div id="report-body"></div>`;
 
   main.querySelectorAll('.seg button').forEach(b => b.onclick = () => {
-    reportView.mode = b.dataset.mode;
-    saveReportView();
-    render();
+    reportView.mode = b.dataset.mode; saveReportView(); render();
   });
+  renderReportControls();
+  renderReportBody();
+}
+
+// Danh sach san pham sau khi loc theo o tim kiem cua bao cao
+function reportFilteredProducts() {
+  const q = (reportView.q || '').trim().toLowerCase();
+  if (!q) return state.products;
+  return state.products.filter(p => (p.code + ' ' + p.name).toLowerCase().includes(q));
+}
+
+function shiftMonth(ym, delta) {
+  const [y, mo] = ym.split('-').map(Number);
+  const d = new Date(y, mo - 1 + delta, 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+function renderReportControls() {
+  const box = document.getElementById('report-controls');
+  if (!box) return;
+  const isMonthly = reportView.mode !== 'snapshot';
+  const qv = (reportView.q || '').replace(/"/g, '&quot;');
+  box.innerHTML = `<div class="card filter-card">
+    <h2>Bộ lọc</h2>
+    <input class="search" id="rp-q" placeholder="Tìm theo Mã SP hoặc Tên SP..." value="${qv}">
+    ${isMonthly ? `
+      <label>Tháng xem</label>
+      <div class="month-pick">
+        <button type="button" id="rp-prev" aria-label="Tháng trước">‹</button>
+        <input type="month" id="rp-month" value="${reportView.month}">
+        <button type="button" id="rp-next" aria-label="Tháng sau">›</button>
+      </div>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="rp-hidezero"${reportView.hideZero ? ' checked' : ''}> Ẩn dòng toàn số 0</label>
+    ` : `
+      <label>Trạng thái</label>
+      <select id="rp-status" style="margin-bottom:0">
+        <option value="all"${reportView.status === 'all' ? ' selected' : ''}>Tất cả</option>
+        <option value="low"${reportView.status === 'low' ? ' selected' : ''}>Chỉ tồn Thấp</option>
+        <option value="ok"${reportView.status === 'ok' ? ' selected' : ''}>Chỉ tồn Đủ</option>
+      </select>
+    `}
+  </div>`;
+
+  const q = document.getElementById('rp-q');
+  q.oninput = () => { reportView.q = q.value; saveReportView(); renderReportBody(); };
   const mp = document.getElementById('rp-month');
-  if (mp) mp.onchange = () => { reportView.month = mp.value || reportView.month; saveReportView(); render(); };
+  if (mp) mp.onchange = () => { reportView.month = mp.value || reportView.month; saveReportView(); renderReportBody(); };
+  const prev = document.getElementById('rp-prev');
+  if (prev) prev.onclick = () => { reportView.month = shiftMonth(reportView.month, -1); saveReportView(); mp.value = reportView.month; renderReportBody(); };
+  const next = document.getElementById('rp-next');
+  if (next) next.onclick = () => { reportView.month = shiftMonth(reportView.month, 1); saveReportView(); mp.value = reportView.month; renderReportBody(); };
   const hz = document.getElementById('rp-hidezero');
-  if (hz) hz.onchange = () => { reportView.hideZero = hz.checked; saveReportView(); render(); };
+  if (hz) hz.onchange = () => { reportView.hideZero = hz.checked; saveReportView(); renderReportBody(); };
+  const st = document.getElementById('rp-status');
+  if (st) st.onchange = () => { reportView.status = st.value; saveReportView(); renderReportBody(); };
+}
+
+function renderReportBody() {
+  const box = document.getElementById('report-body');
+  if (!box) return;
+  if (reportView.mode === 'erp') box.innerHTML = reportMonthlyHtml('erp');
+  else if (reportView.mode === 'muon') box.innerHTML = reportMonthlyHtml('muon');
+  else box.innerHTML = reportSnapshotHtml();
 }
 
 function reportSnapshotHtml() {
-  const totalActual = state.products.reduce((s, p) => s + computeStockTotal(p.id).actual, 0);
-  const lowCount = state.products.filter(p => computeStockTotal(p.id).actual <= (p.threshold || 0)).length;
-  const rows = state.products.map(p => {
-    const s = computeStockTotal(p.id);
-    const low = s.actual <= (p.threshold || 0);
+  let list = reportFilteredProducts().map(p => ({ p, s: computeStockTotal(p.id) }));
+  list.forEach(x => x.low = x.s.actual <= (x.p.threshold || 0));
+  if (reportView.status === 'low') list = list.filter(x => x.low);
+  else if (reportView.status === 'ok') list = list.filter(x => !x.low);
+
+  const totalActual = list.reduce((s, x) => s + x.s.actual, 0);
+  const lowCount = list.filter(x => x.low).length;
+  const rows = list.map(({ p, s, low }) => {
     const locLines = LOCATIONS.map(loc => {
       const sl = computeStock(p.id, loc);
       if (sl.erp === 0 && sl.muon === 0) return '';
       return `<div><span>${loc}</span><span>TT ${fmt(sl.actual)} (ERP ${fmt(sl.erp)}, Mượn ${fmt(sl.muon)})</span></div>`;
     }).filter(Boolean).join('');
     return `<div class="row" style="display:block">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="min-width:0">
           <div class="prod-code">${p.code}</div>
           <div class="prod-name">${p.name}</div>
         </div>
-        <div style="text-align:right;font-family:monospace;font-size:12px">
+        <div style="text-align:right;font-family:monospace;font-size:12px;flex:none">
           ERP ${fmt(s.erp)}<br>Mượn ${fmt(s.muon)}<br>
           <b class="${low ? 'low' : 'ok'}">TT ${fmt(s.actual)}</b>
         </div>
       </div>
       ${locLines ? '<div class="loc-detail">' + locLines + '</div>' : ''}
     </div>`;
-  }).join('');
+  }).join('') || '<div class="empty">Không có sản phẩm khớp bộ lọc.</div>';
   return `
     <div class="card">
       <div class="stat-grid">
-        <div class="stat"><div class="lbl">Số SP</div><div class="val">${state.products.length}</div></div>
+        <div class="stat"><div class="lbl">Số SP</div><div class="val">${list.length}</div></div>
         <div class="stat"><div class="lbl">Tồn thực tế</div><div class="val">${fmt(totalActual)}</div></div>
         <div class="stat"><div class="lbl">Cảnh báo</div><div class="val" style="color:${lowCount > 0 ? '#f87171' : '#e5e7eb'}">${lowCount}</div></div>
       </div>
     </div>
-    <div class="card"><h2>Chi tiết tồn theo sản phẩm (Tổng chung, tách Location bên dưới nếu &gt;1 Location)</h2>${rows}</div>
-    <div class="card">
-      <button class="btn-secondary" onclick="if(confirm('Xóa toàn bộ dữ liệu trên máy này?')){localStorage.removeItem('${STORAGE_KEY}');state={products:[],transactions:[]};render();toast('Đã xóa dữ liệu');}">Xóa toàn bộ dữ liệu trên máy</button>
-    </div>`;
+    <div class="card"><h2>Chi tiết tồn theo sản phẩm (Tổng chung, tách Location bên dưới nếu &gt;1 Location)</h2>${rows}</div>`;
 }
 
 // Bao cao thang ERP (muc 2.4) hoac Muon (muc 2.5). type = 'erp' | 'muon'
@@ -581,191 +703,74 @@ function reportMonthlyHtml(type) {
   const heads = isErp
     ? ['Mã SP', 'Tên SP', 'ĐVT', 'Tồn đầu kỳ', 'Nhập trong kỳ', 'Xuất sản xuất', 'Xuất trả return', 'Xuất trả NCC', 'Tồn cuối']
     : ['Mã SP', 'Tên SP', 'ĐVT', 'Tồn đầu kỳ', 'Xuất mượn từ ERP', 'Nhập trả lại', 'Tồn cuối kỳ'];
+  const valHeads = heads.slice(3);
 
   const tot = isErp
     ? { dauKy: 0, nhapKy: 0, xuatSX: 0, xuatRet: 0, xuatNCC: 0, cuoiKy: 0 }
     : { dauKy: 0, xuatMuon: 0, nhapTra: 0, cuoiKy: 0 };
 
-  let bodyRows = '';
+  let tableRows = '';
+  let cards = '';
   let shown = 0;
-  state.products.forEach(p => {
+  reportFilteredProducts().forEach(p => {
     const r = isErp ? reportRowERP(p.id, ym) : reportRowMuon(p.id, ym);
     Object.keys(tot).forEach(k => tot[k] += r[k]);
-    const allZero = Object.keys(tot).every(k => r[k] === 0);
-    if (reportView.hideZero && allZero) return;
+    if (reportView.hideZero && Object.keys(r).every(k => r[k] === 0)) return;
     shown++;
     const cells = isErp
       ? [r.dauKy, r.nhapKy, r.xuatSX, r.xuatRet, r.xuatNCC, r.cuoiKy]
       : [r.dauKy, r.xuatMuon, r.nhapTra, r.cuoiKy];
-    bodyRows += `<tr>
-      <td class="txt">${p.code}</td>
-      <td class="txt">${p.name}</td>
-      <td class="txt">${p.unit || ''}</td>
+    tableRows += `<tr>
+      <td class="txt">${p.code}</td><td class="txt">${p.name}</td><td class="txt">${p.unit || ''}</td>
       ${cells.map((v, i) => `<td${i === cells.length - 1 ? ' class="strong"' : ''}>${fmt(v)}</td>`).join('')}
     </tr>`;
+    cards += `<div class="rpt-card">
+      <div class="rpt-card-h"><span class="prod-code">${p.code}</span> ${p.name} ${p.unit ? '· ' + p.unit : ''}</div>
+      <div class="rpt-card-g">
+        ${valHeads.map((h, i) => `<div><span>${h}</span><b${i === valHeads.length - 1 ? ' class="strong"' : ''}>${fmt(cells[i])}</b></div>`).join('')}
+      </div>
+    </div>`;
   });
 
   const totCells = isErp
     ? [tot.dauKy, tot.nhapKy, tot.xuatSX, tot.xuatRet, tot.xuatNCC, tot.cuoiKy]
     : [tot.dauKy, tot.xuatMuon, tot.nhapTra, tot.cuoiKy];
 
-  const emptyRow = shown === 0
-    ? `<tr><td class="txt" colspan="${heads.length}" style="text-align:center;color:#6b7280">Không có dòng nào${reportView.hideZero ? ' (đang ẩn dòng toàn số 0)' : ''}.</td></tr>`
-    : '';
+  if (shown === 0) {
+    tableRows = `<tr><td class="txt" colspan="${heads.length}" style="text-align:center;color:#6b7280">Không có dòng nào${reportView.hideZero ? ' (đang ẩn dòng toàn số 0)' : ''}.</td></tr>`;
+    cards = '<div class="empty">Không có dòng nào.</div>';
+  }
+
+  const summary = isErp
+    ? 'Tồn đầu kỳ = cộng dồn Nhập−Xuất (Nguồn=ERP, gộp cả 3 Location) trước ngày 01 của tháng. Tồn cuối = Đầu kỳ + Nhập − Xuất SX − Xuất return − Xuất NCC.'
+    : 'Chỉ tính Nguồn=Mượn, Location=DF. Tồn đầu kỳ (số dương) = cộng dồn Xuất−Nhập trước ngày 01. Tồn cuối kỳ = Đầu kỳ + Xuất mượn − Nhập trả lại.';
 
   return `
     <div class="card">
-      <h2>Báo cáo tháng ${isErp ? 'ERP' : 'Mượn'}</h2>
-      <label>Tháng xem</label>
-      <input type="month" id="rp-month" value="${ym}">
-      <label style="display:flex;align-items:center;gap:8px;margin-top:6px">
-        <input type="checkbox" id="rp-hidezero" style="width:auto;margin:0"${reportView.hideZero ? ' checked' : ''}>
-        Ẩn dòng toàn số 0
-      </label>
-      <div class="filter-summary">
-        ${isErp
-          ? 'Tồn đầu kỳ = cộng dồn Nhập−Xuất (Nguồn=ERP, gộp cả 3 Location) của mọi giao dịch trước ngày 01 của tháng. Tồn cuối = Đầu kỳ + Nhập − Xuất SX − Xuất return − Xuất NCC.'
-          : 'Chỉ tính Nguồn=Mượn, Location=DF. Tồn đầu kỳ (số dương) = cộng dồn Xuất−Nhập trước ngày 01 của tháng. Tồn cuối kỳ = Đầu kỳ + Xuất mượn − Nhập trả lại.'}
-      </div>
+      <h2>Báo cáo tháng ${isErp ? 'ERP' : 'Mượn'} — ${ym.split('-').reverse().join('-')} (${shown} SP)</h2>
+      <div class="filter-summary">${summary}</div>
     </div>
     <div class="card">
+      <div class="rpt-cards">
+        ${cards}
+        ${shown > 0 ? `<div class="rpt-card rpt-total">
+          <div class="rpt-card-h">TỔNG (${shown} SP)</div>
+          <div class="rpt-card-g">${valHeads.map((h, i) => `<div><span>${h}</span><b>${fmt(totCells[i])}</b></div>`).join('')}</div>
+        </div>` : ''}
+      </div>
       <div class="report-wrap">
         <table class="rpt">
           <thead><tr>${heads.map((h, i) => `<th${i < 3 ? ' class="txt"' : ''}>${h}</th>`).join('')}</tr></thead>
-          <tbody>${bodyRows}${emptyRow}</tbody>
-          <tfoot><tr>
-            <td class="txt" colspan="3">TỔNG (${shown} SP)</td>
-            ${totCells.map(v => `<td>${fmt(v)}</td>`).join('')}
-          </tr></tfoot>
+          <tbody>${tableRows}</tbody>
+          <tfoot><tr><td class="txt" colspan="3">TỔNG (${shown} SP)</td>${totCells.map(v => `<td>${fmt(v)}</td>`).join('')}</tr></tfoot>
         </table>
       </div>
     </div>`;
 }
 
-// ---------- Excel import ----------
-document.getElementById('fileInput').addEventListener('change', function(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function(evt) {
-    try {
-      const data = new Uint8Array(evt.target.result);
-      const wb = XLSX.read(data, { type: 'array', cellDates: true });
-      importFromWorkbook(wb);
-      toast('Đã nhập dữ liệu từ Excel');
-      render();
-    } catch (err) {
-      console.error(err);
-      toast('Không đọc được file này');
-    }
-  };
-  reader.readAsArrayBuffer(file);
-  e.target.value = '';
-});
-
-function findSheet(wb, nameHints) {
-  const names = wb.SheetNames;
-  for (const hint of nameHints) {
-    const found = names.find(n => n.toLowerCase().replace(/\s/g,'') === hint.toLowerCase().replace(/\s/g,''));
-    if (found) return wb.Sheets[found];
-  }
-  return null;
-}
-
-function excelDateToStr(v) {
-  if (v instanceof Date) return v.toISOString().slice(0,10);
-  if (typeof v === 'string') return v.slice(0,10);
-  return '';
-}
-
-function importFromWorkbook(wb) {
-  const dmSheet = findSheet(wb, ['Danh mục SP', 'Danh muc SP']);
-  const gdSheet = findSheet(wb, ['Giao dịch', 'Giao dich']);
-
-  const codeToId = {};
-  state.products.forEach(p => codeToId[p.code] = p.id);
-
-  if (dmSheet) {
-    const rows = XLSX.utils.sheet_to_json(dmSheet, { header: 1, defval: '' });
-    for (const r of rows) {
-      const code = String(r[0] || '').trim();
-      if (!code || code === 'Mã SP' || code.startsWith('DANH MỤC') || code.startsWith('Ô màu')) continue;
-      if (!codeToId[code]) {
-        const id = uid();
-        codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0, image: r[4] || '' });
-      } else {
-        const p = state.products.find(pp => pp.code === code);
-        p.name = r[1] || p.name; p.unit = r[2] || p.unit;
-        p.threshold = r[3] !== '' ? Number(r[3]) : p.threshold;
-        p.image = r[4] || p.image || '';
-      }
-    }
-  }
-
-  if (gdSheet) {
-    // Cot: A Ngay chung tu, B Ma SP, C Ten SP (bo qua, la cong thuc), D Loai, E Nguon, F Location, G So luong, H Ghi chu, I Ngay nhap lieu
-    const rows = XLSX.utils.sheet_to_json(gdSheet, { header: 1, defval: '' });
-    for (const r of rows) {
-      const dateStr = excelDateToStr(r[0]);
-      const code = String(r[1] || '').trim();
-      const type = String(r[3] || '').trim();
-      if (!dateStr || !code || (type !== 'Nhập' && type !== 'Xuất')) continue;
-      if (!codeToId[code]) continue;
-      const source = String(r[4] || 'ERP').trim() === 'Mượn' ? 'Mượn' : 'ERP';
-      const location = LOCATIONS.includes(String(r[5] || '').trim()) ? String(r[5]).trim() : 'DF';
-      state.transactions.push({
-        id: uid(), date: dateStr, productId: codeToId[code],
-        type, source, location,
-        qty: Number(r[6]) || 0, note: r[7] || '', synced: true
-      });
-    }
-  }
-  save();
-}
-
-// ---------- Excel export ----------
-function exportExcel() {
-  const wb = XLSX.utils.book_new();
-
-  const dmData = [
-    ['DANH MỤC SẢN PHẨM'], [],
-    ['Mã SP','Tên SP','ĐVT','Ngưỡng cảnh báo tồn thấp','Link hình ảnh']
-  ];
-  state.products.forEach(p => dmData.push([p.code, p.name, p.unit, p.threshold || 0, p.image || '']));
-  const dmSheet = XLSX.utils.aoa_to_sheet(dmData);
-  XLSX.utils.book_append_sheet(wb, dmSheet, 'Danh muc SP');
-
-  const gdData = [
-    ['SỔ GIAO DỊCH'], [],
-    ['Ngày chứng từ','Mã SP','Loại','Nguồn','Location','Số lượng','Ghi chú']
-  ];
-  const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
-  [...state.transactions].sort((a,b) => a.date < b.date ? -1 : 1).forEach(t => {
-    gdData.push([t.date, idToCode[t.productId] || '', t.type, t.source, t.location || 'DF', t.qty, t.note || '']);
-  });
-  const gdSheet = XLSX.utils.aoa_to_sheet(gdData);
-  XLSX.utils.book_append_sheet(wb, gdSheet, 'Giao dich');
-
-  const bcData = [
-    ['TỒN KHO HIỆN TẠI (snapshot lúc xuất file, gộp cả 3 Location)'], [],
-    ['Mã SP','Tên SP','ĐVT','Tồn ERP','Tồn mượn','Tồn thực tế','Trạng thái']
-  ];
-  state.products.forEach(p => {
-    const s = computeStockTotal(p.id);
-    const low = s.actual <= (p.threshold||0);
-    bcData.push([p.code, p.name, p.unit, s.erp, s.muon, s.actual, low ? 'Thấp' : 'Đủ']);
-  });
-  const bcSheet = XLSX.utils.aoa_to_sheet(bcData);
-  XLSX.utils.book_append_sheet(wb, bcSheet, 'Ton kho hien tai');
-
-  const stamp = new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb, `ton-kho-${stamp}.xlsx`);
-}
-
-// ---------- Google Sheet connection ----------
+// ---------- Google Sheet: ket noi + truy van truc tiep ----------
 function renderGoogle(main) {
-  const pendingCount = state.transactions.filter(t => t.synced === false).length;
+  main.classList.remove('cols-2');
   main.innerHTML = `
     <div class="card">
       <h2>Kết nối Google Sheet</h2>
@@ -781,22 +786,23 @@ function renderGoogle(main) {
       <button class="btn-primary" id="g-login" style="margin-top:10px">${accessToken ? 'Đăng nhập lại' : 'Đăng nhập Google'}</button>
     </div>
     <div class="card">
-      <h2>Đồng bộ dữ liệu</h2>
-      <button class="btn-primary" id="g-pull">Tải dữ liệu từ Sheet (Danh mục + Giao dịch)</button>
-      <button class="btn-secondary" id="g-push" style="margin-top:10px">
-        Đồng bộ giao dịch mới lên Sheet ${pendingCount > 0 ? '(' + pendingCount + ' chưa gửi)' : ''}
-      </button>
-      <div id="g-msg" style="margin-top:10px;font-size:12px;color:#9ca3af"></div>
+      <h2>Dữ liệu (truy vấn trực tiếp)</h2>
+      <div style="font-size:12px;color:#9ca3af;line-height:1.6;margin-bottom:10px">
+        App đọc thẳng <b>Danh mục SP</b> và <b>Giao dịch</b> từ Sheet mỗi lần mở / bấm Tải lại.
+        Thêm sản phẩm / giao dịch trong app sẽ <b>ghi ngay</b> vào Sheet (không đụng cột C - công thức Tên SP).
+      </div>
+      <button class="btn-primary" id="g-reload">↻ Tải lại dữ liệu từ Sheet</button>
+      <div id="g-msg" style="margin-top:10px;font-size:12px;color:#9ca3af">
+        ${dataLoaded ? `Đã tải: ${state.products.length} SP, ${state.transactions.length} giao dịch${lastLoaded ? ' · lúc ' + lastLoaded.toLocaleTimeString('vi-VN') : ''}.` : 'Chưa tải dữ liệu.'}
+      </div>
     </div>
     <div class="card">
       <h2>Hướng dẫn nhanh</h2>
       <div style="font-size:12px;color:#9ca3af;line-height:1.6">
-        1. Tạo OAuth Client ID loại "Web application" trong Google Cloud Console, thêm đúng địa chỉ bạn đang mở file này vào "Authorized JavaScript origins".<br>
+        1. Tạo OAuth Client ID loại "Web application" trong Google Cloud Console, thêm đúng địa chỉ đang mở app vào "Authorized JavaScript origins".<br>
         2. Dán Client ID và Spreadsheet ID vào ô trên, bấm Lưu cấu hình.<br>
-        3. Bấm Đăng nhập Google, cho phép quyền truy cập Sheets.<br>
-        4. Bấm "Tải dữ liệu từ Sheet" 1 lần để lấy danh mục + lịch sử hiện có.<br>
-        5. Mỗi giao dịch mới thêm ở tab Giao dịch được đánh dấu "chưa đồng bộ" — bấm "Đồng bộ" khi có mạng.<br>
-        6. Đồng bộ KHÔNG đụng vào cột Tên SP (cột C) trên Sheet thật — cột đó vẫn giữ nguyên công thức có sẵn.
+        3. Bấm Đăng nhập Google, cho phép quyền truy cập Sheets — app tự tải dữ liệu ngay.<br>
+        4. Từ đó mọi thao tác thêm đều ghi trực tiếp lên Sheet; bấm "Tải lại" để lấy thay đổi do người khác nhập.
       </div>
     </div>`;
 
@@ -812,20 +818,21 @@ function renderGoogle(main) {
     initTokenClient();
     if (tokenClient) tokenClient.requestAccessToken({ prompt: accessToken ? '' : 'consent' });
   };
-  document.getElementById('g-pull').onclick = pullFromSheet;
-  document.getElementById('g-push').onclick = pushToSheet;
+  document.getElementById('g-reload').onclick = loadFromSheet;
 }
 
+let silentAuth = false;
 function initTokenClient() {
   if (!window.google || !googleCfg.clientId) return;
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: googleCfg.clientId,
     scope: 'https://www.googleapis.com/auth/spreadsheets',
     callback: (resp) => {
-      if (resp.error) { toast('Đăng nhập thất bại: ' + resp.error); return; }
+      const wasSilent = silentAuth; silentAuth = false;
+      if (resp.error) { if (!wasSilent) toast('Đăng nhập thất bại: ' + resp.error); return; }
       accessToken = resp.access_token;
-      toast('Đăng nhập thành công');
-      render();
+      toast('Đã kết nối Google');
+      loadFromSheet();
     }
   });
 }
@@ -838,7 +845,8 @@ function setGMsg(msg) {
 async function sheetsGet(range) {
   const url = `https://sheets.googleapis.com/v4/spreadsheets/${googleCfg.spreadsheetId}/values/${encodeURIComponent(range)}`;
   const res = await fetch(url, { headers: { Authorization: 'Bearer ' + accessToken } });
-  if (!res.ok) throw new Error('Loi doc sheet: ' + res.status);
+  if (res.status === 401) { accessToken = null; throw new Error('Phiên đăng nhập hết hạn, đăng nhập lại'); }
+  if (!res.ok) throw new Error('Lỗi đọc sheet: ' + res.status);
   return res.json();
 }
 
@@ -849,99 +857,119 @@ async function sheetsUpdate(range, values) {
     headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
     body: JSON.stringify({ values })
   });
-  if (!res.ok) throw new Error('Loi ghi sheet: ' + res.status);
+  if (res.status === 401) { accessToken = null; throw new Error('Phiên đăng nhập hết hạn, đăng nhập lại'); }
+  if (!res.ok) throw new Error('Lỗi ghi sheet: ' + res.status);
   return res.json();
 }
 
-// Tim dong trong tiep theo dua vao cot B (Ma SP) cua sheet that, GIONG HET logic ben Apps Script,
-// vi cot C (Ten SP) da co cong thuc san cho ca 3000 dong nen khong dung duoc de xac dinh "dong trong".
-async function timDongTrongTiepTheoTrenSheet() {
-  const res = await sheetsGet('Giao dịch!B4:B3000');
-  const values = res.values || [];
-  for (let i = 0; i < 2997; i++) {
-    if (!values[i] || !values[i][0]) return 4 + i;
-  }
-  return 4 + values.length;
-}
-
-async function pullFromSheet() {
-  if (!accessToken) { toast('Đăng nhập Google trước'); return; }
-  if (!googleCfg.spreadsheetId) { toast('Nhập Spreadsheet ID trước'); return; }
+// ----- Truy van truc tiep: nap toan bo tu Sheet (Sheet la nguon du lieu duy nhat) -----
+async function loadFromSheet() {
+  if (!accessToken) { toast('Đăng nhập Google trước'); setTab('google'); return; }
+  if (!googleCfg.spreadsheetId) { toast('Nhập Spreadsheet ID trước'); setTab('google'); return; }
+  if (loading) return;
+  loading = true;
+  updateConnState();
   setGMsg('Đang tải...');
+  if (!dataLoaded) render();
   try {
-    const codeToId = {};
-    state.products.forEach(p => codeToId[p.code] = p.id);
+    const [dm, gd] = await Promise.all([
+      sheetsGet(`Danh mục SP!A${DM_FIRST_ROW}:E503`),
+      sheetsGet(`Giao dịch!A${GD_FIRST_ROW}:I${GD_LAST_ROW}`)
+    ]);
 
-    const dm = await sheetsGet('Danh mục SP!A4:E500');
-    (dm.values || []).forEach(r => {
-      const code = String(r[0] || '').trim();
+    const products = [];
+    const codeToId = {};
+    (dm.values || []).forEach((r, i) => {
+      const code = String(r[0] == null ? '' : r[0]).trim();
       if (!code) return;
-      if (!codeToId[code]) {
-        const id = uid();
-        codeToId[code] = id;
-        state.products.push({ id, code, name: r[1] || '', unit: r[2] || '', threshold: Number(r[3]) || 0, image: r[4] || '' });
-      } else {
-        const p = state.products.find(pp => pp.code === code);
-        if (p && !p.image && r[4]) p.image = r[4];
-      }
+      const id = 'p_' + code;
+      codeToId[code] = id;
+      products.push({
+        id, _row: DM_FIRST_ROW + i, code,
+        name: r[1] || '', unit: r[2] || '',
+        threshold: Number(r[3]) || 0, image: r[4] || ''
+      });
     });
 
-    // Cot that: A Ngay, B Ma SP, C Ten SP(cong thuc,bo qua), D Loai, E Nguon, F Location, G So luong, H Ghi chu, I Ngay nhap lieu
-    const gd = await sheetsGet('Giao dịch!A4:I3000');
-    const existingKeys = new Set(state.transactions.map(t => [t.date, t.productId, t.type, t.source, t.location, t.qty, t.note].join('|')));
-    (gd.values || []).forEach(r => {
+    // Cot: A Ngay, B Ma SP, C Ten SP (cong thuc, bo qua), D Loai, E Nguon, F Location, G So luong, H Ghi chu, I Ngay nhap lieu
+    const transactions = [];
+    (gd.values || []).forEach((r, i) => {
       const dateStr = String(r[0] || '').slice(0, 10);
-      const code = String(r[1] || '').trim();
+      const code = String(r[1] == null ? '' : r[1]).trim();
       const type = String(r[3] || '').trim();
       if (!dateStr || !code || (type !== 'Nhập' && type !== 'Xuất') || !codeToId[code]) return;
       const source = String(r[4] || 'ERP').trim() === 'Mượn' ? 'Mượn' : 'ERP';
       const location = LOCATIONS.includes(String(r[5] || '').trim()) ? String(r[5]).trim() : 'DF';
-      const qty = Number(r[6]) || 0;
-      const note = r[7] || '';
-      const key = [dateStr, codeToId[code], type, source, location, qty, note].join('|');
-      if (existingKeys.has(key)) return;
-      state.transactions.push({ id: uid(), date: dateStr, productId: codeToId[code], type, source, location, qty, note, synced: true });
-      existingKeys.add(key);
+      transactions.push({
+        id: 'g_' + (GD_FIRST_ROW + i), _row: GD_FIRST_ROW + i,
+        date: dateStr, productId: codeToId[code],
+        type, source, location, qty: Number(r[6]) || 0, note: r[7] || ''
+      });
     });
 
-    save();
-    setGMsg('Đã tải xong dữ liệu từ Sheet.');
-    toast('Đã tải dữ liệu');
-    render();
+    state.products = products;
+    state.transactions = transactions;
+    dataLoaded = true;
+    lastLoaded = new Date();
+    setGMsg(`Đã tải: ${products.length} SP, ${transactions.length} giao dịch.`);
+    toast('Đã tải dữ liệu từ Sheet');
   } catch (e) {
     console.error(e);
     setGMsg('Lỗi: ' + e.message);
+    toast('Lỗi tải: ' + e.message);
+  } finally {
+    loading = false;
+    updateConnState();
+    render();
   }
 }
 
-async function pushToSheet() {
-  if (!accessToken) { toast('Đăng nhập Google trước'); return; }
-  if (!googleCfg.spreadsheetId) { toast('Nhập Spreadsheet ID trước'); return; }
-  const pending = state.transactions.filter(t => t.synced === false);
-  if (pending.length === 0) { toast('Không có giao dịch nào cần đồng bộ'); return; }
-  setGMsg('Đang đồng bộ ' + pending.length + ' giao dịch...');
-  try {
-    const idToCode = {}; state.products.forEach(p => idToCode[p.id] = p.code);
-    for (const t of pending) {
-      const row = await timDongTrongTiepTheoTrenSheet();
-      // Ghi cot A,B truoc (bo qua C - cong thuc Ten SP co san), roi ghi D..I
-      await sheetsUpdate(`Giao dịch!A${row}:B${row}`, [[t.date, idToCode[t.productId] || '']]);
-      await sheetsUpdate(`Giao dịch!D${row}:I${row}`, [[t.type, t.source, t.location || 'DF', t.qty, t.note || '', new Date().toISOString().slice(0,10)]]);
-      t.synced = true;
-      save();
-    }
-    setGMsg('Đã đồng bộ xong.');
-    toast('Đồng bộ thành công');
-    render();
-  } catch (e) {
-    console.error(e);
-    setGMsg('Lỗi: ' + e.message);
+// ----- Ghi 1 dong san pham moi vao "Danh mục SP" (5 cot A:E, khong co cong thuc) -----
+async function addProductRowToSheet(p) {
+  const res = await sheetsGet(`Danh mục SP!A${DM_FIRST_ROW}:A503`);
+  const values = res.values || [];
+  let row = DM_FIRST_ROW + values.length;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]) { row = DM_FIRST_ROW + i; break; }
   }
+  await sheetsUpdate(`Danh mục SP!A${row}:E${row}`,
+    [[p.code, p.name, p.unit || '', p.threshold || 0, p.image || '']]);
+  return row;
+}
+
+// ----- Ghi 1 dong giao dich moi: A:B roi D:I, BO QUA cot C (cong thuc Ten SP) -----
+async function addTransactionRowToSheet(t) {
+  const res = await sheetsGet(`Giao dịch!B${GD_FIRST_ROW}:B${GD_LAST_ROW}`);
+  const values = res.values || [];
+  let row = GD_FIRST_ROW + values.length;
+  for (let i = 0; i < values.length; i++) {
+    if (!values[i] || !values[i][0]) { row = GD_FIRST_ROW + i; break; }
+  }
+  await sheetsUpdate(`Giao dịch!A${row}:B${row}`, [[t.date, t.code]]);
+  await sheetsUpdate(`Giao dịch!D${row}:I${row}`,
+    [[t.type, t.source, t.location || 'DF', t.qty, t.note || '', new Date().toISOString().slice(0, 10)]]);
+  return row;
 }
 
 load();
 render();
 updateOnlineGate();
+
+// Neu da co san cau hinh: cho GIS san sang roi thu xin token & tai du lieu ngay khi mo app.
+(function autoConnect() {
+  if (!googleCfg.clientId || !googleCfg.spreadsheetId) return;
+  let tries = 0;
+  const timer = setInterval(() => {
+    tries++;
+    if (window.google && window.google.accounts) {
+      clearInterval(timer);
+      initTokenClient();
+      if (tokenClient) { silentAuth = true; tokenClient.requestAccessToken({ prompt: '' }); }
+    } else if (tries > 40) {
+      clearInterval(timer);
+    }
+  }, 250);
+})();
 
 // ---------- Bat buoc su dung khi co mang ----------
 // Ung dung yeu cau ket noi Internet de dam bao du lieu luon dong bo voi Google Sheet.
